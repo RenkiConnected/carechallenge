@@ -597,7 +597,7 @@ export default function App() {
         {tab === 'module' && (
           isProno
             ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
-            : <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} />
+            : <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} />
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}
         {tab === 'rules' && <Rules totalGoals={totalGoals} currentTier={currentTier} settings={modSettings} moduleName={activeModule?.name} />}

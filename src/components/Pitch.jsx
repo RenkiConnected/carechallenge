@@ -68,7 +68,7 @@ function PitchSVGVertical() {
   )
 }
 
-export default function Pitch({ players, coaches, selectedId, onSelect, onUpdatePerson, onAddGoal, onRemoveGoal, onAddSlot, allPeople, totalGoals, settings, validatedById = {} }) {
+export default function Pitch({ players, coaches, selectedId, onSelect, onUpdatePerson, onAddGoal, onRemoveGoal, onAddSlot, allPeople, totalGoals, settings, validatedById = {}, dashAuth = false }) {
   const pitchRef = useRef(null)
   const drag = useRef({ active:false, moved:false, id:null })
 
@@ -85,6 +85,7 @@ export default function Pitch({ players, coaches, selectedId, onSelect, onUpdate
 
   // ── Drag handling ──────────────────────────────────────────────────────────
   const handlePointerDown = useCallback((e, player) => {
+    if (!dashAuth) return // seuls les managers peuvent déplacer les joueurs (le clic reste actif)
     e.preventDefault()
     e.stopPropagation()
     const cx = e.touches ? e.touches[0].clientX : e.clientX
@@ -126,7 +127,7 @@ export default function Pitch({ players, coaches, selectedId, onSelect, onUpdate
     window.addEventListener('pointerup', onUp)
     window.addEventListener('touchmove', onMove, { passive:false })
     window.addEventListener('touchend', onUp)
-  }, [onUpdatePerson])
+  }, [onUpdatePerson, dashAuth])
 
   // ── Click (separate from drag) ─────────────────────────────────────────────
   const handlePlayerClick = useCallback((e, playerId) => {
@@ -176,7 +177,7 @@ export default function Pitch({ players, coaches, selectedId, onSelect, onUpdate
             return (
               <div key={player.id}
                 className={`player-avatar ${sel?'selected':''}`}
-                style={{ left:`${left}%`, top:`${top}%` }}
+                style={{ left:`${left}%`, top:`${top}%`, cursor: dashAuth ? 'grab' : 'pointer' }}
                 onPointerDown={e => handlePointerDown(e, player)}
                 onClick={e => handlePlayerClick(e, player.id)}
               >

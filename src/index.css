@@ -25,17 +25,23 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body, #root { height: 100%; }
+html { width: 100%; max-width: 100%; overflow-x: hidden; overflow-x: clip; overscroll-behavior: none; }
 
 body {
   background: var(--bg-dark);
   color: var(--text);
   font-family: var(--font-body);
+  width: 100%;
+  max-width: 100%;
   overflow-x: hidden;
+  overflow-x: clip;
+  overscroll-behavior: none;
+  position: relative;
   -webkit-tap-highlight-color: transparent;
   font-size: 16px;
 }
 
-#root { min-height: 100vh; display: flex; flex-direction: column; }
+#root { min-height: 100vh; width: 100%; max-width: 100%; overflow-x: hidden; overflow-x: clip; display: flex; flex-direction: column; }
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-thumb { background: rgba(255,215,0,.3); border-radius:3px; }
 
@@ -52,7 +58,7 @@ body {
 @keyframes flicker { 0%,92%,100%{opacity:1} 94%{opacity:.7} 96%{opacity:1} 98%{opacity:.6} }
 
 /* ───── APP LAYOUT ───── */
-.app { min-height:100vh; display:flex; flex-direction:column; background:radial-gradient(ellipse at top,#0d1f3c 0%,var(--bg-dark) 70%); }
+.app { min-height:100vh; width:100%; max-width:100%; overflow-x:hidden; overflow-x:clip; display:flex; flex-direction:column; background:radial-gradient(ellipse at top,#0d1f3c 0%,var(--bg-dark) 70%); }
 
 /* ───── HEADER ───── */
 .app-header {
@@ -582,3 +588,16 @@ input:checked + .toggle-slider::before { transform:translateX(24px); background:
 .prono-winner-anim { animation:winner-pop .5s ease both, winner-glow 1.8s ease-in-out infinite; }
 .prono-card-lost { opacity:.55; filter:grayscale(.4); }
 .prono-lost-label { text-align:center; font-family:var(--font-condensed); font-weight:700; font-size:.78rem; color:#e74c3c; margin-top:6px; }
+
+/* ── Anti-débordement horizontal / rebond mobile ── */
+.app-main { overflow-x:hidden; overflow-x:clip; }
+.app-main > *, .leaderboard, .prono-module, .dashboard, .rules { max-width:100%; }
+img, svg, canvas { max-width:100%; }
+.prono-grid, .dash-stats-grid, .votes-summary-grid { min-width:0; }
+.prono-grid > *, .dash-stats-grid > * { min-width:0; }
+/* les défilements horizontaux internes ne propagent pas leur rebond à la page */
+.module-tabs-scroll, .lb-view-toggle, .coaches-sidebar { overscroll-behavior-x:contain; }
+@media (max-width:767px) {
+  .lb-view-toggle { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  .lvt-btn { flex:0 0 auto; white-space:nowrap; }
+}
