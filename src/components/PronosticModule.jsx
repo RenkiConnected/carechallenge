@@ -1,4 +1,5 @@
 import { PRONO_BONUS } from '../utils/bonus'
+import Fireworks from './Fireworks'
 
 function getInitials(name) { return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
 const hasScore = p => p.franceScore !== '' && p.franceScore != null && p.irelandScore !== '' && p.irelandScore != null
@@ -73,6 +74,8 @@ export default function PronosticModule({ module, players, coaches, dashAuth, on
 
   return (
     <div className="prono-module">
+      {/* Feu d'artifice plein écran si au moins un bon pronostic */}
+      <Fireworks active={winners.length > 0} fixed intense />
       <div className="prono-module-header">
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <span style={{ fontSize:'2rem' }}>🎯</span>

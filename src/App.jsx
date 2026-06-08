@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Pitch from './components/Pitch'
 import PronosticModule from './components/PronosticModule'
+import Fireworks from './components/Fireworks'
 import Leaderboard from './components/Leaderboard'
 import Rules from './components/Rules'
 import Dashboard from './components/Dashboard'
@@ -597,7 +598,10 @@ export default function App() {
         {tab === 'module' && (
           isProno
             ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
-            : <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} />
+            : <div className="module-stage">
+                <Fireworks active={totalGoals >= objective} />
+                <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} />
+              </div>
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}
         {tab === 'rules' && <Rules totalGoals={totalGoals} currentTier={currentTier} settings={modSettings} moduleName={activeModule?.name} />}
