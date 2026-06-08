@@ -192,7 +192,7 @@ export default function Dashboard({
   onAddGoal, onRemoveGoal,
   onResetScores, onResetPositions, onUpdateSettings,
   onAddModule, onAddPronoModule, onRenameModule, onRemoveModule,
-  currentTier, tierRate, fbStatus,
+  currentTier, tierRate, fbStatus, fbError,
   validatedById = {},
 }) {
   const [pw, setPw]           = useState('')
@@ -334,11 +334,12 @@ export default function Dashboard({
 
       {fbStatus === 'offline' && (
         <div style={{ background:'rgba(255,165,0,.06)', border:'1px solid rgba(255,165,0,.25)', borderRadius:10, padding:14, marginBottom:24 }}>
-          <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700, fontSize:'.85rem', color:'#ff9500', marginBottom:6 }}>🔥 Firebase non connecté — données locales uniquement</div>
+          <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700, fontSize:'.85rem', color:'#ff9500', marginBottom:6 }}>🔥 Firebase non connecté — données locales uniquement (pas de partage entre appareils)</div>
           <div style={{ fontFamily:"'Barlow',sans-serif", fontSize:'.78rem', color:'rgba(240,244,255,.6)', lineHeight:1.7 }}>
-            Ajoutez les variables d'environnement dans Vercel :<br />
-            Project Settings → Environment Variables → ajouter VITE_FIREBASE_*<br />
-            Puis redéployer depuis le dashboard Vercel.
+            {fbError && <>Erreur : <strong style={{ color:'#ff9500' }}>{fbError}</strong><br /></>}
+            {String(fbError).includes('permission') || String(fbError).includes('PERMISSION')
+              ? <>Les règles Firestore bloquent l'accès. Dans la console Firebase → Firestore → Règles, autorisez la collection <code>challenge</code> (voir DEPLOIEMENT.md).</>
+              : <>Vérifiez que la base Firestore est bien créée et que ses règles autorisent la collection <code>challenge</code> (voir DEPLOIEMENT.md).</>}
           </div>
         </div>
       )}

@@ -93,6 +93,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null)
   const [dashAuth,   setDashAuth]   = useState(false)
   const [fbStatus,   setFbStatus]   = useState('connecting')
+  const [fbError,    setFbError]    = useState('')
   const [goalBurst,  setGoalBurst]  = useState(null)
 
   // ── REFS (évite les stale closures dans les callbacks) ─────────────────────
@@ -110,56 +111,68 @@ export default function App() {
   const applyingRemote = useRef(false)
   // Date du dernier état accepté (local ou distant) — pour comparer les snapshots.
   const lastAcceptedAt = useRef(0)
+  // Tant qu'on n'a pas reçu l'état du serveur, on N'ÉCRIT PAS sur Firebase
+  // (sinon l'état par défaut écraserait les vraies données partagées).
+  const hydrated = useRef(false)
 
   // ── Firebase ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isConfigured || !db) { setFbStatus('offline'); return }
+    // Filet de sécurité : si le serveur ne répond pas, on autorise l'écriture après 4s
+    const fallback = setTimeout(() => { hydrated.current = true }, 4000)
     const unsub = onSnapshot(doc(db, 'challenge', 'state'),
       snap => {
         setFbStatus('ok')
-        if (!snap.exists()) return
+        clearTimeout(fallback)
+        if (!snap.exists()) { hydrated.current = true; return }
         const d = snap.data()
 
         // 1) C'est notre propre écriture qui revient → on a déjà cet état, on ignore.
         if (d.clientId && d.clientId === clientId.current) {
           lastAcceptedAt.current = d.updatedAt || lastAcceptedAt.current
-          // notre écriture est confirmée : plus de modif locale en attente
           if ((d.updatedAt || 0) >= lastLocalEdit.current) lastLocalEdit.current = 0
+          hydrated.current = true
           return
         }
 
         // 2) Snapshot plus ancien que nos modifs locales non écrites → on l'ignore
-        //    (sinon il efface ce qu'on vient de faire).
         const ts = d.updatedAt || 0
-        if (lastLocalEdit.current && ts < lastLocalEdit.current) return
-        if (ts && ts <= lastAcceptedAt.current) return
+        if (lastLocalEdit.current && ts < lastLocalEdit.current) { hydrated.current = true; return }
+        if (ts && ts <= lastAcceptedAt.current) { hydrated.current = true; return }
 
         // 3) État distant légitime (autre client, plus récent) → on l'applique.
         applyingRemote.current = true
+        if (saveTimer.current) clearTimeout(saveTimer.current) // annule une écriture locale en attente
         if (d.modules)   setModules(reconcileModules(d.modules))
         if (d.coaches)   setCoaches(d.coaches)
         if (d.activeMod) setActiveMod(d.activeMod)
         lastAcceptedAt.current = ts
+        hydrated.current = true
       },
-      err => { console.warn('[FB]', err.code, err.message); setFbStatus('offline') }
+      err => { console.warn('[FB]', err.code, err.message); setFbError(err.code || err.message || ''); setFbStatus('offline') }
     )
-    return unsub
+    return () => { clearTimeout(fallback); unsub() }
   }, [])
 
   const persist = useCallback((m, c, am) => {
     // Ne pas ré-écrire l'état qu'on vient juste de recevoir du serveur.
-    if (applyingRemote.current) { applyingRemote.current = false; return }
+    if (applyingRemote.current) {
+      applyingRemote.current = false
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      return
+    }
 
     const now = Date.now()
-    lastLocalEdit.current = now
-    lastAcceptedAt.current = now
     const data = { modules: m, coaches: c, activeMod: am, updatedAt: now, clientId: clientId.current }
-    saveLocal(data)
+    saveLocal(data) // localStorage : toujours (sauvegarde locale immédiate)
 
-    if (isConfigured && db) {
+    // Firebase : seulement après avoir reçu l'état serveur (évite d'écraser les vraies données)
+    if (isConfigured && db && hydrated.current) {
+      lastLocalEdit.current = now
+      lastAcceptedAt.current = now
       if (saveTimer.current) clearTimeout(saveTimer.current)
       saveTimer.current = setTimeout(() => {
-        setDoc(doc(db,'challenge','state'), data).catch(e => { console.warn('[FB write]',e); setFbStatus('offline') })
+        setDoc(doc(db,'challenge','state'), data).catch(e => { console.warn('[FB write]',e); setFbError(e.code || e.message || ''); setFbStatus('offline') })
       }, 400)
     }
   }, [])
@@ -469,7 +482,7 @@ export default function App() {
             onUpdateSettings={setActiveSettings}
             onAddModule={addModule} onAddPronoModule={addPronoModule}
             onRenameModule={renameModule} onRemoveModule={removeModule}
-            currentTier={currentTier} tierRate={tierRate} fbStatus={fbStatus}
+            currentTier={currentTier} tierRate={tierRate} fbStatus={fbStatus} fbError={fbError}
             validatedById={validatedById}
           />
         )}

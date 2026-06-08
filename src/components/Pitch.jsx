@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useState, useEffect } from 'react'
 import PlayerModal from './PlayerModal'
 
 function getInitials(name) { return name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) }
@@ -36,9 +36,52 @@ function PitchSVG() {
   )
 }
 
+// Terrain VERTICAL (mobile) — portrait 520×800
+function PitchSVGVertical() {
+  return (
+    <svg className="pitch-svg" viewBox="0 0 520 800" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <pattern id="gsv" patternUnits="userSpaceOnUse" width="520" height="80">
+          <rect width="520" height="80" fill="#1e7a1e"/>
+          <rect width="520" height="40" fill="#228b22"/>
+        </pattern>
+      </defs>
+      <rect width="520" height="800" fill="url(#gsv)"/>
+      <rect width="520" height="800" fill="rgba(0,0,0,.12)"/>
+      <rect x="30" y="40" width="460" height="720" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="2.5"/>
+      <line x1="30" y1="400" x2="490" y2="400" stroke="rgba(255,255,255,.9)" strokeWidth="2"/>
+      <circle cx="260" cy="400" r="73" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="2"/>
+      <circle cx="260" cy="400" r="5" fill="rgba(255,255,255,.9)"/>
+      {/* But haut */}
+      <rect x="145" y="40" width="230" height="132" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="2"/>
+      <rect x="195" y="40" width="130" height="55" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="2"/>
+      <rect x="215" y="16" width="90" height="24" fill="rgba(0,0,0,.2)" stroke="rgba(255,255,255,.9)" strokeWidth="2"/>
+      <circle cx="260" cy="128" r="4" fill="rgba(255,255,255,.9)"/>
+      <path d="M205 172 A73 73 0 0 0 315 172" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="2"/>
+      {/* But bas */}
+      <rect x="145" y="628" width="230" height="132" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="2"/>
+      <rect x="195" y="705" width="130" height="55" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="2"/>
+      <rect x="215" y="760" width="90" height="24" fill="rgba(0,0,0,.2)" stroke="rgba(255,255,255,.9)" strokeWidth="2"/>
+      <circle cx="260" cy="672" r="4" fill="rgba(255,255,255,.9)"/>
+      <path d="M205 628 A73 73 0 0 1 315 628" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="2"/>
+    </svg>
+  )
+}
+
 export default function Pitch({ players, coaches, selectedId, onSelect, onUpdatePerson, onAddGoal, onRemoveGoal, onAddSlot, allPeople, totalGoals, settings, validatedById = {} }) {
   const pitchRef = useRef(null)
   const drag = useRef({ active:false, moved:false, id:null })
+
+  // Terrain vertical sur mobile (portrait)
+  const mqGet = () => (typeof window !== 'undefined' && window.matchMedia) ? window.matchMedia('(max-width:767px)') : null
+  const [isMobile, setIsMobile] = useState(() => { const m = mqGet(); return m ? m.matches : false })
+  useEffect(() => {
+    const mq = mqGet()
+    if (!mq) return
+    const on = e => setIsMobile(e.matches)
+    mq.addEventListener ? mq.addEventListener('change', on) : mq.addListener(on)
+    return () => { mq.removeEventListener ? mq.removeEventListener('change', on) : mq.removeListener(on) }
+  }, [])
 
   // ── Drag handling ──────────────────────────────────────────────────────────
   const handlePointerDown = useCallback((e, player) => {
@@ -48,7 +91,7 @@ export default function Pitch({ players, coaches, selectedId, onSelect, onUpdate
     const cy = e.touches ? e.touches[0].clientY : e.clientY
     const rect = pitchRef.current.getBoundingClientRect()
 
-    drag.current = { active:true, moved:false, id:player.id, sx:cx, sy:cy, ox:player.x, oy:player.y, pw:rect.width, ph:rect.height }
+    drag.current = { active:true, moved:false, id:player.id, sx:cx, sy:cy, ox:player.x, oy:player.y, pw:rect.width, ph:rect.height, mobile:isMobile }
 
     const onMove = (ev) => {
       if (!drag.current.active) return
@@ -58,10 +101,18 @@ export default function Pitch({ players, coaches, selectedId, onSelect, onUpdate
       const dy = my - drag.current.sy
       if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
         drag.current.moved = true
-        onUpdatePerson(drag.current.id, {
-          x: Math.max(3, Math.min(97, drag.current.ox + (dx/drag.current.pw)*100)),
-          y: Math.max(3, Math.min(97, drag.current.oy + (dy/drag.current.ph)*100)),
-        })
+        if (drag.current.mobile) {
+          // Vertical : horizontal écran → y stocké, vertical écran → x stocké
+          onUpdatePerson(drag.current.id, {
+            x: Math.max(3, Math.min(97, drag.current.ox + (dy/drag.current.ph)*100)),
+            y: Math.max(3, Math.min(97, drag.current.oy + (dx/drag.current.pw)*100)),
+          })
+        } else {
+          onUpdatePerson(drag.current.id, {
+            x: Math.max(3, Math.min(97, drag.current.ox + (dx/drag.current.pw)*100)),
+            y: Math.max(3, Math.min(97, drag.current.oy + (dy/drag.current.ph)*100)),
+          })
+        }
       }
     }
     const onUp = () => {
@@ -116,14 +167,16 @@ export default function Pitch({ players, coaches, selectedId, onSelect, onUpdate
 
         {/* ── Pitch ── */}
         <div className="pitch-container" ref={pitchRef} onClick={() => onSelect(null)}>
-          <PitchSVG />
+          {isMobile ? <PitchSVGVertical /> : <PitchSVG />}
           {players.map(player => {
             const sel = selectedId === player.id
             const ht  = player.goals >= 3
+            const left = isMobile ? player.y : player.x
+            const top  = isMobile ? player.x : player.y
             return (
               <div key={player.id}
                 className={`player-avatar ${sel?'selected':''}`}
-                style={{ left:`${player.x}%`, top:`${player.y}%` }}
+                style={{ left:`${left}%`, top:`${top}%` }}
                 onPointerDown={e => handlePointerDown(e, player)}
                 onClick={e => handlePlayerClick(e, player.id)}
               >
