@@ -48,7 +48,7 @@ function PredictionPoll({ player, onUpdate }) {
 }
 
 // ── Carte joueur ─────────────────────────────────────────────────────────────
-function PlayerPronoCard({ player, onUpdate, onValidate, onUnvalidate, dashAuth }) {
+function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, onValidate, onUnvalidate, dashAuth }) {
   const validated = player.validatedPronos || 0
   const total = player.pronos || 0
   const earnings = getPronoEarnings(player)
@@ -82,9 +82,9 @@ function PlayerPronoCard({ player, onUpdate, onValidate, onUnvalidate, dashAuth 
           {Array.from({ length: total }, (_, i) => (
             <span key={i} className={`prono-ball ${i < validated ? 'prono-ball-won' : 'prono-ball-pending'}`}>⚽</span>
           ))}
-          <button className="add-prono-ball" onClick={() => onUpdate(player.id, { pronos: total + 1 })} title="Ajouter un pronostic">+</button>
+          <button className="add-prono-ball" onClick={() => onAddBall(player.id)} title="Ajouter un pronostic (+1 ballon en 1ère Partie)">+</button>
           {total > 0 && (
-            <button className="rem-prono-ball" onClick={() => onUpdate(player.id, { pronos: Math.max(0, total - 1), validatedPronos: Math.min(validated, Math.max(0, total - 1)) })} title="Retirer">−</button>
+            <button className="rem-prono-ball" onClick={() => onRemoveBall(player.id)} title="Retirer">−</button>
           )}
         </div>
       </div>
@@ -116,7 +116,7 @@ function PlayerPronoCard({ player, onUpdate, onValidate, onUnvalidate, dashAuth 
 }
 
 // ── Composant principal ───────────────────────────────────────────────────────
-export default function PronosticModule({ players, coaches, dashAuth, onUpdatePerson }) {
+export default function PronosticModule({ players, coaches, dashAuth, onUpdatePerson, onAddBall, onRemoveBall }) {
   const allPeople = [...players, ...coaches]
 
   const onValidate = (id) => {
@@ -231,6 +231,8 @@ export default function PronosticModule({ players, coaches, dashAuth, onUpdatePe
             key={player.id}
             player={player}
             onUpdate={onUpdatePerson}
+            onAddBall={onAddBall}
+            onRemoveBall={onRemoveBall}
             onValidate={onValidate}
             onUnvalidate={onUnvalidate}
             dashAuth={dashAuth}

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  getPlayerEarnings, getPronoEarnings, buildCombinedRanking,
+  getPlayerEarnings, getPlayerTotalEarnings, getPronoEarnings, buildCombinedRanking,
   isTopScorer, hasHatTrick, getCurrentTier, DEFAULT_SETTINGS, PRONO_BONUS
 } from '../utils/bonus'
 
@@ -84,12 +84,13 @@ function CombinedRow({ entry, rank, expanded, onToggle }) {
 }
 
 // ── Vue module individuel (forfaits) ─────────────────────────────────────────
-function ForfaitModuleView({ mod, coaches }) {
+function ForfaitModuleView({ mod, coaches, validatedById = {}, isCanonical = false }) {
+  const vpFor = (id) => isCanonical ? (validatedById[id]||0) : 0
   const allPeople = [...(mod.players||[]), ...coaches]
   const totalGoals = allPeople.reduce((s,p) => s+(p.goals||0), 0)
   const s = { ...DEFAULT_SETTINGS, ...mod.settings }
   const sorted = [...allPeople].sort((a,b) => (b.goals||0)-(a.goals||0) || a.name.localeCompare(b.name))
-  const totalEarnings = sorted.reduce((sum,p) => sum+getPlayerEarnings(p,allPeople,totalGoals,s), 0)
+  const totalEarnings = sorted.reduce((sum,p) => sum+getPlayerTotalEarnings(p,allPeople,totalGoals,s,vpFor(p.id)), 0)
   const currentTier = getCurrentTier(totalGoals, s)
 
   return (
@@ -113,7 +114,7 @@ function ForfaitModuleView({ mod, coaches }) {
       </div>
 
       {sorted.map((player, i) => {
-        const earnings = getPlayerEarnings(player, allPeople, totalGoals, s)
+        const earnings = getPlayerTotalEarnings(player, allPeople, totalGoals, s, vpFor(player.id))
         const isTop = isTopScorer(player, allPeople, s)
         const ht = hasHatTrick(player)
         const rank = i + 1
@@ -206,6 +207,10 @@ export default function Leaderboard({ modules, coaches, activeModId }) {
   const [view, setView] = useState('combined')
   const [expandedId, setExpandedId] = useState(null)
 
+  const validatedById = {}
+  modules.forEach(m => { if (m.type==='pronostic') (m.players||[]).forEach(p => { validatedById[p.id]=(validatedById[p.id]||0)+(p.validatedPronos||0) }) })
+  coaches.forEach(c => { if (c.validatedPronos) validatedById[c.id]=(validatedById[c.id]||0)+(c.validatedPronos||0) })
+  const canonId = (modules.find(m => (m.type||'forfaits')==='forfaits')||modules[0])?.id
   const combined = buildCombinedRanking(modules, coaches)
   const grandTotal = combined.reduce((s, p) => s + p.totalEarnings, 0)
   const totalForfaits = combined.reduce((s, p) => s + p.totalGoals, 0)
@@ -279,7 +284,7 @@ export default function Leaderboard({ modules, coaches, activeModId }) {
         if (!mod) return null
         return mod.type === 'pronostic'
           ? <PronoModuleView mod={mod} coaches={coaches} />
-          : <ForfaitModuleView mod={mod} coaches={coaches} />
+          : <ForfaitModuleView mod={mod} coaches={coaches} validatedById={validatedById} isCanonical={mod.id===canonId} />
       })()}
     </div>
   )

@@ -4,7 +4,7 @@ import PronosticModule from './components/PronosticModule'
 import Leaderboard from './components/Leaderboard'
 import Rules from './components/Rules'
 import Dashboard from './components/Dashboard'
-import { getCurrentTier, getTierRate, getPronoBonusMap, DEFAULT_SETTINGS } from './utils/bonus'
+import { getCurrentTier, getTierRate, DEFAULT_SETTINGS } from './utils/bonus'
 import { db, isConfigured, doc, setDoc, onSnapshot } from './firebase'
 
 const BASE_PLAYERS = [
@@ -172,8 +172,13 @@ export default function App() {
   const totalGoals    = isProno ? 0 : allPeople.reduce((s,p) => s+(p.goals||0), 0)
   const currentTier   = getCurrentTier(totalGoals, modSettings)
   const tierRate      = getTierRate(totalGoals, modSettings)
-  // Bonus pronostic global par joueur (validé × 20€) — ajouté au gain total partout
-  const pronoBonusById = useMemo(() => getPronoBonusMap(modules, coaches), [modules, coaches])
+  // Nombre de pronostics validés par joueur (sert à valoriser ces ballons à 20€ partout)
+  const validatedById = useMemo(() => {
+    const map = {}
+    modules.forEach(m => { if (m.type === 'pronostic') (m.players||[]).forEach(p => { map[p.id] = (map[p.id]||0) + (p.validatedPronos||0) }) })
+    coaches.forEach(c => { if (c.validatedPronos) map[c.id] = (map[c.id]||0) + (c.validatedPronos||0) })
+    return map
+  }, [modules, coaches])
 
   // ── Helpers d'update robustes (utilise ref, pas closure) ──────────────────
   // Met à jour les joueurs du MODULE ACTIF
@@ -249,6 +254,46 @@ export default function App() {
   const removePlayer = useCallback((id) => {
     setModules(prev => prev.map(m => ({ ...m, players: m.players.filter(p => p.id !== id) })))
     setSelectedId(sel => sel === id ? null : sel)
+  }, [])
+
+  // ── Pronostics ──────────────────────────────────────────────────────────────
+  // Ajouter un ballon dans Bon Pronostiqueur = +1 pronostic ET +1 ballon (forfait) en 1ère Partie
+  const addPronoBall = useCallback((id) => {
+    setModules(prev => {
+      const canon = prev.find(m => (m.type || 'forfaits') === 'forfaits') || prev[0]
+      return prev.map(m => {
+        let mm = m
+        if (m.id === activeModRef.current) // module pronostic actif → +1 prono
+          mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, pronos: (p.pronos||0)+1 } : p) }
+        if (canon && m.id === canon.id)    // 1ère Partie → +1 forfait
+          mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, goals: (p.goals||0)+1 } : p) }
+        return mm
+      })
+    })
+    setCoaches(prev => prev.map(p => p.id === id ? { ...p, pronos:(p.pronos||0)+1, goals:(p.goals||0)+1 } : p))
+  }, [])
+
+  const removePronoBall = useCallback((id) => {
+    setModules(prev => {
+      const canon = prev.find(m => (m.type || 'forfaits') === 'forfaits') || prev[0]
+      return prev.map(m => {
+        let mm = m
+        if (m.id === activeModRef.current)
+          mm = { ...mm, players: mm.players.map(p => {
+            if (p.id !== id) return p
+            const np = Math.max(0, (p.pronos||0)-1)
+            return { ...p, pronos: np, validatedPronos: Math.min(p.validatedPronos||0, np) }
+          }) }
+        if (canon && m.id === canon.id)
+          mm = { ...mm, players: mm.players.map(p => p.id === id && (p.goals||0) > 0 ? { ...p, goals: p.goals-1 } : p) }
+        return mm
+      })
+    })
+    setCoaches(prev => prev.map(p => {
+      if (p.id !== id) return p
+      const np = Math.max(0, (p.pronos||0)-1)
+      return { ...p, pronos: np, validatedPronos: Math.min(p.validatedPronos||0, np), goals: Math.max(0, (p.goals||0)-1) }
+    }))
   }, [])
 
   // ── Gestion modules ───────────────────────────────────────────────────────
@@ -403,8 +448,8 @@ export default function App() {
       <main className="app-main">
         {tab === 'module' && (
           isProno
-            ? <PronosticModule players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} />
-            : <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} pronoBonusById={pronoBonusById} />
+            ? <PronosticModule players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
+            : <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} />
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}
         {tab === 'rules' && <Rules totalGoals={totalGoals} currentTier={currentTier} settings={modSettings} moduleName={activeModule?.name} />}
@@ -422,7 +467,7 @@ export default function App() {
             onAddModule={addModule} onAddPronoModule={addPronoModule}
             onRenameModule={renameModule} onRemoveModule={removeModule}
             currentTier={currentTier} tierRate={tierRate} fbStatus={fbStatus}
-            pronoBonusById={pronoBonusById}
+            validatedById={validatedById}
           />
         )}
       </main>

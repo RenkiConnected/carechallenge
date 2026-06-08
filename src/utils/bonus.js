@@ -2,7 +2,7 @@
  * CALCUL DES PRIMES — RÉTROACTIF + COMBINÉ (forfaits + pronostics)
  */
 export const DEFAULT_SETTINGS = {
-  tier1Rate: 9.99,
+  tier1Rate: 10,
   tier2Rate: 12,
   tier3Rate: 15,
   topScorerRate: 20,
@@ -13,28 +13,40 @@ export const DEFAULT_SETTINGS = {
 }
 
 export const PRONO_BONUS = 20
+// Un ballon dont le pronostic a été validé par le Manager vaut 20€ (au lieu du taux palier)
+export const VALIDATED_BALL_VALUE = 20
 
-/** Gains forfaits d'un joueur — RÉTROACTIF au taux actuel */
-export function getPlayerEarnings(player, players, totalGoals, settings = DEFAULT_SETTINGS) {
-  const {
-    tier1Rate, tier2Rate, tier3Rate, topScorerRate,
-    tier1Threshold, tier2Threshold, phaseEnded, minForTier3,
-  } = { ...DEFAULT_SETTINGS, ...settings }
-
-  if (!player.goals || player.goals === 0) return 0
-
-  if (phaseEnded) {
+// Taux par ballon "normal" d'un joueur (palier courant, ou top buteur en fin de phase)
+function ballRateFor(player, players, totalGoals, s) {
+  if (s.phaseEnded) {
     const maxG = Math.max(...players.map(p => p.goals || 0), 0)
-    const tops = players.filter(p => (p.goals||0) === maxG && maxG > 0)
-    if (tops.length === 1 && player.goals === maxG) return round2(player.goals * topScorerRate)
+    const tops = players.filter(p => (p.goals || 0) === maxG && maxG > 0)
+    if (tops.length === 1 && (player.goals || 0) === maxG) return s.topScorerRate
   }
+  if (totalGoals >= s.tier2Threshold)      return (player.goals >= (s.minForTier3 || 3)) ? s.tier3Rate : s.tier2Rate
+  if (totalGoals >= s.tier1Threshold)      return s.tier2Rate
+  return s.tier1Rate
+}
 
-  let rate
-  if (totalGoals >= tier2Threshold)       rate = (player.goals >= (minForTier3||3)) ? tier3Rate : tier2Rate
-  else if (totalGoals >= tier1Threshold)  rate = tier2Rate
-  else                                    rate = tier1Rate
+/** Gains forfaits PURS d'un joueur (sans bonus pronostic) — RÉTROACTIF au taux actuel */
+export function getPlayerEarnings(player, players, totalGoals, settings = DEFAULT_SETTINGS) {
+  const s = { ...DEFAULT_SETTINGS, ...settings }
+  if (!player.goals || player.goals === 0) return 0
+  return round2(player.goals * ballRateFor(player, players, totalGoals, s))
+}
 
-  return round2(player.goals * rate)
+/**
+ * Gains TOTAUX : les ballons validés (pronostics justes) valent 20€,
+ * les autres valent le taux du palier courant (10/12/15€).
+ * total = (buts - validés) × taux + validés × 20
+ */
+export function getPlayerTotalEarnings(player, players, totalGoals, settings = DEFAULT_SETTINGS, validatedCount = 0) {
+  const s = { ...DEFAULT_SETTINGS, ...settings }
+  const goals = player.goals || 0
+  if (!goals) return 0
+  const rate = ballRateFor(player, players, totalGoals, s)
+  const vp = Math.max(0, Math.min(validatedCount || 0, goals))
+  return round2((goals - vp) * rate + vp * VALIDATED_BALL_VALUE)
 }
 
 /** Gains pronostic d'un joueur */
@@ -71,6 +83,20 @@ export function buildCombinedRanking(modules, coaches) {
   // Map id → player aggregate
   const map = new Map()
 
+  // Nombre de pronostics validés par joueur (tous modules pronostic + coaches)
+  const validatedById = {}
+  ;(modules || []).forEach(m => {
+    if (m.type === 'pronostic') (m.players || []).forEach(p => {
+      validatedById[String(p.id)] = (validatedById[String(p.id)] || 0) + (p.validatedPronos || 0)
+    })
+  })
+  ;(coaches || []).forEach(c => {
+    if (c.validatedPronos) validatedById[String(c.id)] = (validatedById[String(c.id)] || 0) + (c.validatedPronos || 0)
+  })
+
+  // La 1ère partie "forfaits" est celle qui porte les ballons (donc le bonus de validation)
+  const canonId = ((modules || []).find(m => (m.type || 'forfaits') === 'forfaits') || (modules || [])[0])?.id
+
   // Init depuis coaches
   coaches.forEach(c => {
     map.set(String(c.id), {
@@ -83,13 +109,13 @@ export function buildCombinedRanking(modules, coaches) {
     })
   })
 
-  // Parcours de tous les modules
   modules.forEach(mod => {
     const allPeople = [...(mod.players || []), ...coaches]
 
     if (!mod.type || mod.type === 'forfaits') {
-      const totalGoals = allPeople.reduce((s, p) => s + (p.goals||0), 0)
+      const totalGoals = allPeople.reduce((s, p) => s + (p.goals || 0), 0)
       const s = { ...DEFAULT_SETTINGS, ...mod.settings }
+      const isCanon = mod.id === canonId
 
       allPeople.forEach(p => {
         const key = String(p.id)
@@ -99,13 +125,18 @@ export function buildCombinedRanking(modules, coaches) {
         }
         const entry = map.get(key)
         entry.name = p.name; entry.color = p.color
-        const earnings = getPlayerEarnings(p, allPeople, totalGoals, s)
-        entry.totalGoals += (p.goals||0)
-        entry.forfaitEarnings += earnings
-        entry.totalEarnings += earnings
-        entry.moduleDetails.push({ type:'forfait', name:mod.name, goals:p.goals||0, earnings })
+        const vp = isCanon ? (validatedById[key] || 0) : 0
+        const total = getPlayerTotalEarnings(p, allPeople, totalGoals, s, vp)
+        const forfaitOnly = getPlayerEarnings(p, allPeople, totalGoals, s)
+        entry.totalGoals += (p.goals || 0)
+        entry.forfaitEarnings += forfaitOnly
+        entry.pronoEarningsTotal += Math.max(0, total - forfaitOnly) // surplus dû aux ballons validés
+        entry.totalEarnings += total
+        entry.moduleDetails.push({ type:'forfait', name:mod.name, goals:p.goals || 0, earnings:total })
       })
     } else if (mod.type === 'pronostic') {
+      // Le gain est déjà compté dans la 1ère partie (ballons validés à 20€).
+      // Ici on n'agrège que le nombre de pronostics validés (pour les badges).
       allPeople.forEach(p => {
         const key = String(p.id)
         if (!map.has(key)) {
@@ -115,12 +146,9 @@ export function buildCombinedRanking(modules, coaches) {
         const entry = map.get(key)
         entry.name = p.name; entry.color = p.color
         const wins = p.validatedPronos || 0
-        const earnings = wins * PRONO_BONUS
         entry.totalPronoWins += wins
-        entry.pronoEarningsTotal += earnings
-        entry.totalEarnings += earnings
         if (wins > 0 || (p.pronos||0) > 0)
-          entry.moduleDetails.push({ type:'prono', name:mod.name, wins, pronos:p.pronos||0, earnings })
+          entry.moduleDetails.push({ type:'prono', name:mod.name, wins, pronos:p.pronos||0, earnings:0 })
       })
     }
   })

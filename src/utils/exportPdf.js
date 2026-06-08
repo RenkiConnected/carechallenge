@@ -1,4 +1,4 @@
-import { getPlayerEarnings, isTopScorer, hasHatTrick, DEFAULT_SETTINGS } from './bonus'
+import { getPlayerEarnings, getPlayerTotalEarnings, isTopScorer, hasHatTrick, DEFAULT_SETTINGS } from './bonus'
 
 function fmt(n) { return Number(n).toFixed(2) + '€' }
 function fmtDate() {
@@ -10,6 +10,11 @@ function ordinal(n) {
 }
 
 export function exportPdf(modules, coaches) {
+  const validatedById = {}
+  modules.forEach(m => { if (m.type==='pronostic') (m.players||[]).forEach(p => { validatedById[p.id]=(validatedById[p.id]||0)+(p.validatedPronos||0) }) })
+  coaches.forEach(c => { if (c.validatedPronos) validatedById[c.id]=(validatedById[c.id]||0)+(c.validatedPronos||0) })
+  const canonId = (modules.find(m => (m.type||'forfaits')==='forfaits')||modules[0])?.id
+  const vpFor = (mod, id) => (mod.id===canonId ? (validatedById[id]||0) : 0)
   const allModulesData = modules.map(mod => {
     const allPeople = [...mod.players, ...coaches]
     const totalGoals = allPeople.reduce((s, p) => s + p.goals, 0)
@@ -123,7 +128,7 @@ export function exportPdf(modules, coaches) {
 </div>
 
 ${allModulesData.map(({ mod, allPeople, totalGoals, s, sorted }, idx) => {
-  const totalEarnings = allPeople.reduce((sum, p) => sum + getPlayerEarnings(p, allPeople, totalGoals, s), 0)
+  const totalEarnings = allPeople.reduce((sum, p) => sum + getPlayerTotalEarnings(p, allPeople, totalGoals, s, vpFor(mod, p.id)), 0)
   const t1 = s.tier1Threshold || 40
   const t2 = s.tier2Threshold || 50
   const w1 = Math.min(t1, totalGoals)
@@ -167,7 +172,7 @@ ${allModulesData.map(({ mod, allPeople, totalGoals, s, sorted }, idx) => {
     </thead>
     <tbody>
       ${sorted.map((player, i) => {
-        const earnings = getPlayerEarnings(player, allPeople, totalGoals, s)
+        const earnings = getPlayerTotalEarnings(player, allPeople, totalGoals, s, vpFor(mod, player.id))
         const isTop = isTopScorer(player, allPeople, s)
         const ht = hasHatTrick(player)
         const rank = i + 1
@@ -216,7 +221,7 @@ ${allModulesData.map(({ mod, allPeople, totalGoals, s, sorted }, idx) => {
       <div class="summary-label">Phases actives</div>
     </div>
     <div class="summary-card green">
-      <div class="summary-num">${modules.reduce((s, m) => { const all = [...m.players, ...coaches]; const t = all.reduce((a,p)=>a+p.goals,0); return s + all.reduce((a,p)=>a+getPlayerEarnings(p,all,t,{...DEFAULT_SETTINGS,...m.settings}),0)},0).toFixed(2)}€</div>
+      <div class="summary-num">${modules.reduce((acc, m) => { const all = [...m.players, ...coaches]; const t = all.reduce((a,p)=>a+(p.goals||0),0); const st={...DEFAULT_SETTINGS,...m.settings}; return acc + all.reduce((a,p)=>a+getPlayerTotalEarnings(p,all,t,st,vpFor(m,p.id)),0)},0).toFixed(2)}€</div>
       <div class="summary-label">Primes totales</div>
     </div>
     <div class="summary-card orange">

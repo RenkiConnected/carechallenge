@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { getPlayerEarnings, isTopScorer, hasHatTrick, DEFAULT_SETTINGS } from '../utils/bonus'
+import { getPlayerEarnings, getPlayerTotalEarnings, isTopScorer, hasHatTrick, DEFAULT_SETTINGS } from '../utils/bonus'
 import { exportPdf } from '../utils/exportPdf'
 
 const PASSWORD = 'Raphael2232'
@@ -42,12 +42,11 @@ function ColorPicker({ current, onChange }) {
 }
 
 // ── Ligne joueur ──────────────────────────────────────────────────────────────
-function PlayerRow({ player, onUpdate, onAddGoal, onRemoveGoal, onRemove, allPeople, totalGoals, settings, pronoBonus = 0 }) {
+function PlayerRow({ player, onUpdate, onAddGoal, onRemoveGoal, onRemove, allPeople, totalGoals, settings, validatedCount = 0 }) {
   const [showColor, setShowColor] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
 
-  const forfaitEarnings = getPlayerEarnings(player, allPeople, totalGoals, settings)
-  const earnings = forfaitEarnings + pronoBonus
+  const earnings = getPlayerTotalEarnings(player, allPeople, totalGoals, settings, validatedCount)
   const isTop = isTopScorer(player, allPeople, settings)
 
   const handleAdd  = useCallback(() => onAddGoal(player.id), [onAddGoal, player.id])
@@ -194,7 +193,7 @@ export default function Dashboard({
   onResetScores, onResetPositions, onUpdateSettings,
   onAddModule, onAddPronoModule, onRenameModule, onRemoveModule,
   currentTier, tierRate, fbStatus,
-  pronoBonusById = {},
+  validatedById = {},
 }) {
   const [pw, setPw]           = useState('')
   const [pwErr, setPwErr]     = useState(false)
@@ -222,7 +221,9 @@ export default function Dashboard({
   }
 
   const s = { ...DEFAULT_SETTINGS, ...settings }
-  const totalEarnings = allPeople.reduce((sum,p) => sum+getPlayerEarnings(p,allPeople,totalGoals,s)+(pronoBonusById[p.id]||0), 0)
+  const isCanonActive = activeModId === (modules.find(m => (m.type||'forfaits')==='forfaits')||modules[0])?.id
+  const vpFor = (id) => isCanonActive ? (validatedById[id]||0) : 0
+  const totalEarnings = allPeople.reduce((sum,p) => sum+getPlayerTotalEarnings(p,allPeople,totalGoals,s,vpFor(p.id)), 0)
   const htCount = allPeople.filter(p=>hasHatTrick(p)).length
   const topPlayer = [...allPeople].sort((a,b)=>(b.goals||0)-(a.goals||0))[0]
   const activeMod = modules.find(m => m.id === activeModId) || modules[0]
@@ -312,10 +313,10 @@ export default function Dashboard({
           <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontWeight:400, fontSize:'.7rem', color:'var(--text-dim)', marginLeft:6 }}>(partagés sur tout le site · avatar = couleur)</span>
         </div>
         {coaches.map(c => (
-          <PlayerRow key={c.id} player={c} onUpdate={onUpdatePerson} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} onRemove={()=>{}} allPeople={allPeople} totalGoals={totalGoals} settings={s} pronoBonus={pronoBonusById[c.id]||0} />
+          <PlayerRow key={c.id} player={c} onUpdate={onUpdatePerson} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} onRemove={()=>{}} allPeople={allPeople} totalGoals={totalGoals} settings={s} validatedCount={vpFor(c.id)} />
         ))}
         {modPlayers.map(p => (
-          <PlayerRow key={p.id} player={p} onUpdate={onUpdatePerson} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} onRemove={onRemovePlayer} allPeople={allPeople} totalGoals={totalGoals} settings={s} pronoBonus={pronoBonusById[p.id]||0} />
+          <PlayerRow key={p.id} player={p} onUpdate={onUpdatePerson} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} onRemove={onRemovePlayer} allPeople={allPeople} totalGoals={totalGoals} settings={s} validatedCount={vpFor(p.id)} />
         ))}
         <div className="btn-row">
           <button type="button" className="btn-primary" onClick={onAddPlayer}>+ Ajouter un joueur</button>
