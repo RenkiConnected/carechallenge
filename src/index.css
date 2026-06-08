@@ -48,7 +48,7 @@ body {
 @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
 @keyframes spin-slow { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
 @keyframes slide-in-up { from{transform:translateY(30px);opacity:0} to{transform:translateY(0);opacity:1} }
-@keyframes ticker-scroll { 0%{transform:translateX(100%)} 100%{transform:translateX(-200%)} }
+@keyframes ticker-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
 @keyframes flicker { 0%,92%,100%{opacity:1} 94%{opacity:.7} 96%{opacity:1} 98%{opacity:.6} }
 
 /* ───── APP LAYOUT ───── */
@@ -116,7 +116,7 @@ body {
 
 /* ───── TICKER ───── */
 .ticker-wrap { background:rgba(255,215,0,.08); border-top:1px solid rgba(255,215,0,.15); overflow:hidden; height:26px; display:flex; align-items:center; }
-.ticker-content { display:inline-flex; gap:60px; white-space:nowrap; animation:ticker-scroll 28s linear infinite; }
+.ticker-content { display:inline-flex; gap:60px; white-space:nowrap; animation:ticker-scroll 70s linear infinite; padding-left:60px; will-change:transform; }
 .ticker-content span { font-family:var(--font-condensed); font-size:clamp(.72rem,1.8vw,.85rem); font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--gold); }
 
 /* ───── NAV ───── */
@@ -559,3 +559,26 @@ input:checked + .toggle-slider::before { transform:translateX(24px); background:
 .prono-validate-btn:hover { filter:brightness(1.1); }
 .prono-unvalidate-btn { background:rgba(255,68,68,.08); border:1px solid rgba(255,68,68,.3); border-radius:6px; padding:7px 10px; color:rgba(255,68,68,.7); font-family:var(--font-condensed); font-weight:700; font-size:.78rem; cursor:pointer; transition:all .2s; }
 .prono-won-label { font-family:var(--font-condensed); font-size:.75rem; text-align:center; color:var(--gold); background:rgba(255,215,0,.08); border-radius:6px; padding:5px 8px; }
+
+/* ── Pronostic : résultat officiel + animations ── */
+.prono-result-box { background:linear-gradient(135deg,rgba(255,215,0,.08),rgba(255,152,0,.05)); border:1px solid rgba(255,215,0,.3); border-radius:12px; padding:14px; margin:0 0 12px; text-align:center; }
+.prono-result-title { font-family:var(--font-condensed); font-weight:800; letter-spacing:1px; color:var(--gold); font-size:.95rem; margin-bottom:10px; text-transform:uppercase; }
+.prono-result-row { display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:12px; }
+.result-inp { width:54px !important; height:54px !important; font-size:1.5rem !important; border-color:rgba(255,215,0,.4) !important; }
+.prono-validate-all-btn { width:100%; padding:13px; border:none; border-radius:10px; cursor:pointer; font-family:var(--font-condensed); font-weight:800; letter-spacing:1px; text-transform:uppercase; font-size:1rem; color:#0a0e27; background:linear-gradient(135deg,#2ecc71,#27ae60); box-shadow:0 4px 14px rgba(46,204,113,.4); transition:transform .15s; }
+.prono-validate-all-btn:hover:not(:disabled) { transform:translateY(-2px); }
+.prono-validate-all-btn:disabled { opacity:.4; cursor:not-allowed; background:rgba(255,255,255,.1); color:rgba(255,255,255,.5); box-shadow:none; }
+.prono-result-hint { font-family:var(--font-body); font-size:.72rem; color:rgba(240,244,255,.5); margin-top:8px; }
+.prono-result-public { text-align:center; font-family:var(--font-condensed); font-weight:700; letter-spacing:1px; color:var(--gold); background:rgba(255,215,0,.08); border:1px solid rgba(255,215,0,.2); border-radius:10px; padding:10px; margin-bottom:12px; }
+.prono-result-public.dim { color:rgba(240,244,255,.45); background:rgba(255,255,255,.04); border-color:var(--border); }
+
+@keyframes winner-pop { 0%{transform:scale(.6);opacity:0} 50%{transform:scale(1.08)} 100%{transform:scale(1);opacity:1} }
+@keyframes winner-glow { 0%,100%{box-shadow:0 0 0 0 rgba(46,204,113,.5)} 50%{box-shadow:0 0 22px 4px rgba(46,204,113,.7)} }
+@keyframes perdu-shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)} }
+@keyframes perdu-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(231,76,60,.5)} 50%{box-shadow:0 0 26px 6px rgba(231,76,60,.75)} }
+
+.prono-winner-banner { text-align:center; font-family:var(--font-display); font-size:1.5rem; letter-spacing:2px; color:#0a0e27; background:linear-gradient(135deg,#2ecc71,#27ae60,#ffd700); border-radius:12px; padding:14px; margin-bottom:12px; animation:winner-pop .5s ease both, winner-glow 1.6s ease-in-out infinite; }
+.prono-perdu-banner { text-align:center; font-family:var(--font-display); font-size:2rem; letter-spacing:6px; color:#fff; background:linear-gradient(135deg,#c0392b,#e74c3c); border-radius:12px; padding:16px; margin-bottom:12px; animation:perdu-shake .6s ease both, perdu-pulse 1.4s ease-in-out infinite; }
+.prono-winner-anim { animation:winner-pop .5s ease both, winner-glow 1.8s ease-in-out infinite; }
+.prono-card-lost { opacity:.55; filter:grayscale(.4); }
+.prono-lost-label { text-align:center; font-family:var(--font-condensed); font-weight:700; font-size:.78rem; color:#e74c3c; margin-top:6px; }

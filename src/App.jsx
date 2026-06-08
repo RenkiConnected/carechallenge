@@ -103,6 +103,11 @@ export default function App() {
   const [dashAuth,   setDashAuth]   = useState(false)
   const [fbStatus,   setFbStatus]   = useState('connecting')
   const [fbError,    setFbError]    = useState('')
+  // Synchro temps réel : si OFF, on ne voit PAS en direct ce que font les autres
+  // (les données restent partagées : enregistrées et rechargées à l'ouverture).
+  const [liveSync,   setLiveSync]   = useState(() => localStorage.getItem('fc2026_live') === 'on')
+  const liveSyncRef = useRef(liveSync)
+  useEffect(() => { liveSyncRef.current = liveSync; try { localStorage.setItem('fc2026_live', liveSync ? 'on' : 'off') } catch {} }, [liveSync])
   const [goalBurst,  setGoalBurst]  = useState(null)
 
   // ── REFS (évite les stale closures dans les callbacks) ─────────────────────
@@ -205,6 +210,9 @@ export default function App() {
         }
 
         // 3) Le serveur est plus récent → on l'applique.
+        //    Si la synchro temps réel est désactivée, on n'applique PAS les mises à jour
+        //    en direct après le 1er chargement (on garde notre écran stable).
+        if (hydrated.current && !liveSyncRef.current) { return }
         applyingRemote.current = true
         if (saveTimer.current) clearTimeout(saveTimer.current)
         if (d.modules)   setModules(reconcileModules(d.modules))
@@ -394,6 +402,42 @@ export default function App() {
     }))
   }, [])
 
+  // Le manager saisit le résultat officiel France-Irlande sur le module pronostic
+  const setPronoResult = useCallback((moduleId, field, value) => {
+    setModules(prev => prev.map(m => m.id === moduleId
+      ? { ...m, result: { ...(m.result || {}), [field]: value } }
+      : m))
+  }, [])
+
+  // Valide TOUS les pronostics d'un coup en comparant au résultat officiel.
+  // Gagnants → ballon à 20€ ajouté en 1ère Partie · perdants → rien.
+  const validatePronos = useCallback((moduleId) => {
+    const { modules: mods, coaches: cs } = stateRef.current
+    const mod = mods.find(m => m.id === moduleId)
+    const R = mod?.result || {}
+    const rf = R.france, ri = R.ireland
+    if (rf === '' || rf == null || ri === '' || ri == null) return
+    const predicted = p => p.franceScore !== '' && p.franceScore != null && p.irelandScore !== '' && p.irelandScore != null
+    const isWin = p => predicted(p) && Number(p.franceScore) === Number(rf) && Number(p.irelandScore) === Number(ri)
+    const status = p => predicted(p) ? (isWin(p) ? 'won' : 'lost') : ''
+    const newVP = {}, delta = {}
+    ;[...(mod.players || []), ...cs].forEach(p => { const nv = isWin(p) ? 1 : 0; newVP[p.id] = nv; delta[p.id] = nv - (p.validatedPronos || 0) })
+    const canonId = (mods.find(m => (m.type || 'forfaits') === 'forfaits') || mods[0])?.id
+    setModules(prev => prev.map(m => {
+      if (m.id === moduleId)
+        return { ...m, validatedRound: (m.validatedRound || 0) + 1,
+          players: m.players.map(p => ({ ...p, validatedPronos: newVP[p.id] ?? (p.validatedPronos||0), pronos: predicted(p)?1:(p.pronos||0), pronoStatus: status(p) })) }
+      if (m.id === canonId)
+        return { ...m, players: m.players.map(p => delta[p.id] ? { ...p, goals: Math.max(0, (p.goals||0) + delta[p.id]) } : p) }
+      return m
+    }))
+    setCoaches(prev => prev.map(c => ({ ...c,
+      validatedPronos: newVP[c.id] ?? (c.validatedPronos||0),
+      pronos: predicted(c) ? 1 : (c.pronos||0),
+      pronoStatus: status(c),
+      goals: delta[c.id] ? Math.max(0, (c.goals||0) + delta[c.id]) : (c.goals||0) })))
+  }, [])
+
   // ── Gestion modules ───────────────────────────────────────────────────────
   // Une nouvelle partie reprend automatiquement TOUS les joueurs existants (roster global)
   const playersFromRoster = (prev, type) => {
@@ -513,10 +557,13 @@ export default function App() {
         )}
         <div className="ticker-wrap">
           <div className="ticker-content">
-            {isProno
-              ? <><span>🎯 BON PRONOSTIQUEUR · FRANCE VS IRLANDE</span><span>⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS</span><span>🔧 MANAGER VALIDE LES BONS PRONOSTICS</span></>
-              : <><span>⚽ {modSettings.bannerPhase || 'PHASE DE PRÉPARATION'} · {modSettings.bannerDates || "JUSQU'AU 11/06/2026"}</span><span>🏆 OBJECTIF {objective} {unitU} → {modSettings.tier3Rate}€ RÉTROACTIF</span><span>👑 TOP BUTEUR : {modSettings.topScorerRate}€/{unit} SI OBJECTIF ATTEINT</span><span>🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE</span></>
-            }
+            {(() => {
+              const items = isProno
+                ? ['🎯 BON PRONOSTIQUEUR · FRANCE VS IRLANDE', '⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS', '🔧 MANAGER VALIDE LES BONS PRONOSTICS', '🏆 RÉSULTAT OFFICIEL SAISI PAR LE MANAGER']
+                : [`⚽ ${modSettings.bannerPhase || 'PHASE DE PRÉPARATION'} · ${modSettings.bannerDates || "JUSQU'AU 11/06/2026"}`, `🏆 OBJECTIF ${objective} ${unitU} → ${modSettings.tier3Rate}€ RÉTROACTIF`, `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/${unit} SI OBJECTIF ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
+              // contenu dupliqué pour un défilement continu sans coupure
+              return [...items, ...items].map((t, i) => <span key={i}>{t}</span>)
+            })()}
           </div>
         </div>
       </header>
@@ -554,7 +601,7 @@ export default function App() {
       <main className="app-main">
         {tab === 'module' && (
           isProno
-            ? <PronosticModule players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
+            ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} />
             : <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} />
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}
@@ -575,6 +622,7 @@ export default function App() {
             currentTier={currentTier} tierRate={tierRate} fbStatus={fbStatus} fbError={fbError}
             validatedById={validatedById}
             onExport={exportData} onImport={importData}
+            liveSync={liveSync} onToggleLiveSync={setLiveSync}
           />
         )}
       </main>

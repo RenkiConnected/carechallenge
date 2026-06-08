@@ -195,6 +195,7 @@ export default function Dashboard({
   currentTier, tierRate, fbStatus, fbError,
   validatedById = {},
   onExport, onImport,
+  liveSync, onToggleLiveSync,
 }) {
   const [pw, setPw]           = useState('')
   const [pwErr, setPwErr]     = useState(false)
@@ -349,6 +350,13 @@ export default function Dashboard({
                 r.readAsText(f)
               }} />
           </label>
+        </div>
+        <div style={{ marginTop:14, paddingTop:12, borderTop:'1px solid var(--border)' }}>
+          <Toggle label="🔴 Synchronisation temps réel"
+            desc={liveSync
+              ? 'Activée : tu vois en direct les changements faits sur les autres appareils.'
+              : 'Désactivée : les données restent partagées (sauvegardées et rechargées à l\'ouverture), mais ton écran ne bouge pas en direct quand quelqu\'un d\'autre modifie.'}
+            checked={!!liveSync} onChange={v => onToggleLiveSync && onToggleLiveSync(v)} />
         </div>
       </div>
 
