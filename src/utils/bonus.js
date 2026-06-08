@@ -43,6 +43,27 @@ export function getPronoEarnings(player) {
 }
 
 /**
+ * Bonus pronostic GLOBAL par joueur (toutes les parties "pronostic" confondues).
+ * Retourne un objet { [id]: montant }. Sert à ajouter le bonus au gain total
+ * affiché partout (1ère Partie, fiche joueur, Manager).
+ */
+export function getPronoBonusMap(modules, coaches) {
+  const map = {}
+  ;(modules || []).forEach(m => {
+    if (m.type === 'pronostic') {
+      ;(m.players || []).forEach(p => {
+        map[p.id] = (map[p.id] || 0) + (p.validatedPronos || 0) * PRONO_BONUS
+      })
+    }
+  })
+  // Les coaches stockent validatedPronos sur leur propre objet (global)
+  ;(coaches || []).forEach(c => {
+    if (c.validatedPronos) map[c.id] = (map[c.id] || 0) + (c.validatedPronos || 0) * PRONO_BONUS
+  })
+  return map
+}
+
+/**
  * EARNINGS COMBINÉES : forfaits de TOUS les modules + pronostics de TOUS les modules
  * Utilisé par le classement global
  */

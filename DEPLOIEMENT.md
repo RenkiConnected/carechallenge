@@ -1,130 +1,73 @@
-/**
- * CALCUL DES PRIMES — RÉTROACTIF + COMBINÉ (forfaits + pronostics)
- */
-export const DEFAULT_SETTINGS = {
-  tier1Rate: 9.99,
-  tier2Rate: 12,
-  tier3Rate: 15,
-  topScorerRate: 20,
-  tier1Threshold: 40,
-  tier2Threshold: 50,
-  phaseEnded: false,
-  minForTier3: 3,
-}
+# 🚀 Déployer sur Vercel — guide simple
 
-export const PRONO_BONUS = 20
+Ton appli est déjà en ligne (carechallenge.vercel.app) et liée à un dépôt GitHub
+(`RenkiConnected/carechallenge`). Tu n'as donc qu'à **remplacer les fichiers par
+cette version corrigée**. Vercel redéploie tout seul, automatiquement.
 
-/** Gains forfaits d'un joueur — RÉTROACTIF au taux actuel */
-export function getPlayerEarnings(player, players, totalGoals, settings = DEFAULT_SETTINGS) {
-  const {
-    tier1Rate, tier2Rate, tier3Rate, topScorerRate,
-    tier1Threshold, tier2Threshold, phaseEnded, minForTier3,
-  } = { ...DEFAULT_SETTINGS, ...settings }
+Plus besoin de configurer la moindre variable Firebase : les clés sont intégrées,
+ça marche dès le déploiement.
 
-  if (!player.goals || player.goals === 0) return 0
+---
 
-  if (phaseEnded) {
-    const maxG = Math.max(...players.map(p => p.goals || 0), 0)
-    const tops = players.filter(p => (p.goals||0) === maxG && maxG > 0)
-    if (tops.length === 1 && player.goals === maxG) return round2(player.goals * topScorerRate)
-  }
+## ✅ Méthode 1 — Par GitHub (recommandée, zéro logiciel à installer)
 
-  let rate
-  if (totalGoals >= tier2Threshold)       rate = (player.goals >= (minForTier3||3)) ? tier3Rate : tier2Rate
-  else if (totalGoals >= tier1Threshold)  rate = tier2Rate
-  else                                    rate = tier1Rate
+1. Décompresse le fichier `football-challenge-2026-fixed.zip` sur ton ordinateur.
+2. Va sur **https://github.com/RenkiConnected/carechallenge**
+3. Clique sur le dossier `src`, puis sur le fichier `App.jsx` →
+   bouton crayon ✏️ (Edit) en haut à droite.
+4. Sélectionne tout (Ctrl+A), supprime, puis colle le contenu du **nouveau**
+   `src/App.jsx` (ouvre-le avec le Bloc-notes). Clique **Commit changes** (bouton vert).
+5. Refais la même chose pour `src/firebase.js`.
+6. C'est tout : Vercel détecte le changement et redéploie en ~1 minute.
+   Va sur l'onglet **Deployments** de ton projet Vercel pour voir la progression.
 
-  return round2(player.goals * rate)
-}
+> Seuls **2 fichiers ont changé** dans cette version : `src/App.jsx` et
+> `src/firebase.js`. Tu peux ne remplacer que ces deux-là.
 
-/** Gains pronostic d'un joueur */
-export function getPronoEarnings(player) {
-  return round2((player.validatedPronos || 0) * PRONO_BONUS)
-}
+---
 
-/**
- * EARNINGS COMBINÉES : forfaits de TOUS les modules + pronostics de TOUS les modules
- * Utilisé par le classement global
- */
-export function buildCombinedRanking(modules, coaches) {
-  // Map id → player aggregate
-  const map = new Map()
+## ✅ Méthode 2 — Glisser-déposer tout le dossier sur GitHub
 
-  // Init depuis coaches
-  coaches.forEach(c => {
-    map.set(String(c.id), {
-      id: c.id, name: c.name, color: c.color,
-      isCoach: true, role: c.role,
-      totalGoals: 0, totalPronoWins: 0,
-      totalEarnings: 0,
-      forfaitEarnings: 0, pronoEarningsTotal: 0,
-      moduleDetails: [],
-    })
-  })
+1. Sur **https://github.com/RenkiConnected/carechallenge**, clique
+   **Add file → Upload files**.
+2. Fais glisser TOUT le contenu du dossier décompressé (le dossier `src`, `public`,
+   `index.html`, `package.json`, etc.).
+3. Clique **Commit changes**. Vercel redéploie automatiquement.
 
-  // Parcours de tous les modules
-  modules.forEach(mod => {
-    const allPeople = [...(mod.players || []), ...coaches]
+---
 
-    if (!mod.type || mod.type === 'forfaits') {
-      const totalGoals = allPeople.reduce((s, p) => s + (p.goals||0), 0)
-      const s = { ...DEFAULT_SETTINGS, ...mod.settings }
+## ✅ Méthode 3 — Ligne de commande (si tu as Node installé)
 
-      allPeople.forEach(p => {
-        const key = String(p.id)
-        if (!map.has(key)) {
-          map.set(key, { id:p.id, name:p.name, color:p.color, isCoach:p.isCoach, role:p.role,
-            totalGoals:0, totalPronoWins:0, totalEarnings:0, forfaitEarnings:0, pronoEarningsTotal:0, moduleDetails:[] })
-        }
-        const entry = map.get(key)
-        entry.name = p.name; entry.color = p.color
-        const earnings = getPlayerEarnings(p, allPeople, totalGoals, s)
-        entry.totalGoals += (p.goals||0)
-        entry.forfaitEarnings += earnings
-        entry.totalEarnings += earnings
-        entry.moduleDetails.push({ type:'forfait', name:mod.name, goals:p.goals||0, earnings })
-      })
-    } else if (mod.type === 'pronostic') {
-      allPeople.forEach(p => {
-        const key = String(p.id)
-        if (!map.has(key)) {
-          map.set(key, { id:p.id, name:p.name, color:p.color, isCoach:p.isCoach, role:p.role,
-            totalGoals:0, totalPronoWins:0, totalEarnings:0, forfaitEarnings:0, pronoEarningsTotal:0, moduleDetails:[] })
-        }
-        const entry = map.get(key)
-        entry.name = p.name; entry.color = p.color
-        const wins = p.validatedPronos || 0
-        const earnings = wins * PRONO_BONUS
-        entry.totalPronoWins += wins
-        entry.pronoEarningsTotal += earnings
-        entry.totalEarnings += earnings
-        if (wins > 0 || (p.pronos||0) > 0)
-          entry.moduleDetails.push({ type:'prono', name:mod.name, wins, pronos:p.pronos||0, earnings })
-      })
+Dans le dossier décompressé, ouvre un terminal et tape :
+
+```bash
+npx vercel --prod
+```
+
+Connecte-toi quand c'est demandé, accepte les réglages par défaut. L'URL de ton
+site s'affiche à la fin.
+
+---
+
+## 🔒 Une seule chose à vérifier côté Firebase
+
+Pour que la synchronisation entre appareils marche, les **règles Firestore**
+doivent autoriser la lecture/écriture. Dans la console Firebase
+(console.firebase.google.com → projet `carechallenge-24abd` → Firestore → Règles) :
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /challenge/{doc} {
+      allow read, write: if true;
     }
-  })
+  }
+}
+```
 
-  return [...map.values()]
-    .sort((a, b) => b.totalEarnings - a.totalEarnings || b.totalGoals - a.totalGoals)
-}
+> ⚠️ `if true` = tout le monde peut lire/écrire. C'est simple et suffisant pour un
+> usage interne. Pour plus de sécurité plus tard, on pourra restreindre.
 
-function round2(n) { return Math.round(n * 100) / 100 }
-
-export function getCurrentTier(totalGoals, settings = DEFAULT_SETTINGS) {
-  const { tier1Threshold, tier2Threshold } = { ...DEFAULT_SETTINGS, ...settings }
-  if (totalGoals >= tier2Threshold) return 3
-  if (totalGoals >= tier1Threshold) return 2
-  return 1
-}
-export function getTierRate(totalGoals, settings = DEFAULT_SETTINGS) {
-  const { tier1Rate, tier2Rate, tier3Rate, tier1Threshold, tier2Threshold } = { ...DEFAULT_SETTINGS, ...settings }
-  if (totalGoals >= tier2Threshold) return tier3Rate
-  if (totalGoals >= tier1Threshold) return tier2Rate
-  return tier1Rate
-}
-export function isTopScorer(player, players, settings = DEFAULT_SETTINGS) {
-  if (!settings?.phaseEnded || !player.goals) return false
-  const maxG = Math.max(...players.map(p => p.goals||0), 0)
-  return player.goals === maxG && players.filter(p => (p.goals||0) === maxG).length === 1
-}
-export function hasHatTrick(player) { return (player.goals||0) >= 3 }
+Si les règles bloquent, l'appli affiche « Firebase non connecté » et continue en
+mode local (tout marche, mais sans partage entre appareils).

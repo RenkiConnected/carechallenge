@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Pitch from './components/Pitch'
 import PronosticModule from './components/PronosticModule'
 import Leaderboard from './components/Leaderboard'
 import Rules from './components/Rules'
 import Dashboard from './components/Dashboard'
-import { getCurrentTier, getTierRate, DEFAULT_SETTINGS } from './utils/bonus'
+import { getCurrentTier, getTierRate, getPronoBonusMap, DEFAULT_SETTINGS } from './utils/bonus'
 import { db, isConfigured, doc, setDoc, onSnapshot } from './firebase'
 
 const BASE_PLAYERS = [
@@ -32,9 +32,58 @@ function makePronoModule(id) {
 function loadLocal() { try { const r = localStorage.getItem('fc2026_v5'); return r ? JSON.parse(r) : null } catch { return null } }
 function saveLocal(d) { try { localStorage.setItem('fc2026_v5', JSON.stringify(d)) } catch {} }
 
+// ── ROSTER GLOBAL : les joueurs sont PARTAGÉS sur toutes les parties ───────────
+// La SOURCE DE VÉRITÉ = la 1ère partie "forfaits" (celle gérée dans le Manager).
+// Toutes les autres parties (Pronostic, parties suivantes) sont FORCÉES à contenir
+// exactement ces joueurs (mêmes id / nom / couleur), en ajoutant les manquants et
+// en SUPPRIMANT les joueurs qui n'existent pas dans le Manager.
+// Seules les données par-partie (buts, positions, pronostics) restent propres.
+let _idCounter = 0
+function uniqueId() { return Date.now() * 1000 + (_idCounter++ % 1000) }
+
+function baseFor(type) {
+  return type === 'pronostic'
+    ? { goals: 0, pronos: 0, validatedPronos: 0, franceScore: '', irelandScore: '' }
+    : { goals: 0, extraSlots: 0 }
+}
+
+// Module canonique = 1ère partie de type forfaits (sinon le 1er module)
+function canonicalModule(modules) {
+  return (modules || []).find(m => (m.type || 'forfaits') === 'forfaits') || (modules || [])[0]
+}
+
+// Liste de référence des joueurs (identité), issue du module canonique
+function buildRoster(modules) {
+  const canon = canonicalModule(modules)
+  const map = new Map()
+  ;(canon?.players || []).forEach(p => {
+    if (!map.has(p.id)) map.set(p.id, { id: p.id, name: p.name, color: p.color, x: p.x, y: p.y })
+  })
+  return map
+}
+
+// Force CHAQUE partie à contenir exactement le roster (ajoute manquants, retire orphelins,
+// synchronise nom + couleur). Conserve les données par-partie des joueurs déjà présents.
+function reconcileModules(modules) {
+  if (!modules || !modules.length) return modules
+  const roster = buildRoster(modules)
+  if (!roster.size) return modules
+  return modules.map(m => {
+    const existing = new Map((m.players || []).map(p => [p.id, p]))
+    const players = [...roster.values()].map(r => {
+      const prev = existing.get(r.id)
+      const merged = { ...baseFor(m.type), ...(prev || {}), id: r.id, name: r.name, color: r.color }
+      if (merged.x == null) merged.x = r.x ?? (40 + Math.random() * 20)
+      if (merged.y == null) merged.y = r.y ?? (40 + Math.random() * 20)
+      return merged
+    })
+    return { ...m, players }
+  })
+}
+
 export default function App() {
   const saved = loadLocal()
-  const [modules,    setModules]    = useState(() => saved?.modules  || [makeModule(1,'1ère Partie'), makePronoModule(2)])
+  const [modules,    setModules]    = useState(() => reconcileModules(saved?.modules || [makeModule(1,'1ère Partie'), makePronoModule(2)]))
   const [coaches,    setCoaches]    = useState(() => saved?.coaches  || BASE_COACHES)
   const [activeMod,  setActiveMod]  = useState(() => saved?.activeMod || 1)
   const [tab,        setTab]        = useState('module')
@@ -84,7 +133,7 @@ export default function App() {
 
         // 3) État distant légitime (autre client, plus récent) → on l'applique.
         applyingRemote.current = true
-        if (d.modules)   setModules(d.modules)
+        if (d.modules)   setModules(reconcileModules(d.modules))
         if (d.coaches)   setCoaches(d.coaches)
         if (d.activeMod) setActiveMod(d.activeMod)
         lastAcceptedAt.current = ts
@@ -123,6 +172,8 @@ export default function App() {
   const totalGoals    = isProno ? 0 : allPeople.reduce((s,p) => s+(p.goals||0), 0)
   const currentTier   = getCurrentTier(totalGoals, modSettings)
   const tierRate      = getTierRate(totalGoals, modSettings)
+  // Bonus pronostic global par joueur (validé × 20€) — ajouté au gain total partout
+  const pronoBonusById = useMemo(() => getPronoBonusMap(modules, coaches), [modules, coaches])
 
   // ── Helpers d'update robustes (utilise ref, pas closure) ──────────────────
   // Met à jour les joueurs du MODULE ACTIF
@@ -140,9 +191,21 @@ export default function App() {
   }, [])
 
   // ── Actions joueurs ───────────────────────────────────────────────────────
-  // Mise à jour générique (player dans module actif OU coach)
+  // Champs d'IDENTITÉ : synchronisés sur TOUTES les parties + coaches.
+  // Les autres champs (positions, pronostics…) restent propres à la partie active.
+  const GLOBAL_FIELDS = ['name', 'color']
   const updatePerson = useCallback((id, updates) => {
-    setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
+    const keys = Object.keys(updates)
+    const isGlobal = keys.length > 0 && keys.every(k => GLOBAL_FIELDS.includes(k))
+    if (isGlobal) {
+      // nom / couleur → toutes les parties
+      setModules(prev => prev.map(m => ({
+        ...m, players: m.players.map(p => p.id === id ? { ...p, ...updates } : p),
+      })))
+    } else {
+      // données par-partie → uniquement la partie active
+      setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
+    }
     setCoaches(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
   }, [setActivePlayers])
 
@@ -165,38 +228,57 @@ export default function App() {
     setCoaches(prev => prev.map(p => p.id === id ? { ...p, extraSlots: (p.extraSlots||0)+1 } : p))
   }, [setActivePlayers])
 
+  // Ajoute le MÊME joueur (même id, nom, couleur) à TOUTES les parties
   const addPlayer = useCallback(() => {
     const COLORS = ['#e74c3c','#3498db','#2ecc71','#e67e22','#9b59b6','#1abc9c','#e91e8c','#ff9800','#00bcd4','#f1c40f']
-    setActivePlayers(prev => {
-      const mod = modules.find(m => m.id === activeModRef.current)
-      const isPronoMod = mod?.type === 'pronostic'
-      const nid = Date.now() * 1000 + Math.floor(Math.random() * 1000)
-      const base = isPronoMod
-        ? { goals:0, pronos:0, validatedPronos:0, franceScore:'', irelandScore:'' }
-        : { goals:0, extraSlots:0 }
-      return [...prev, { id: nid, name: `Joueur ${prev.length+1}`, color: COLORS[prev.length % COLORS.length], x: 40+Math.random()*20, y: 40+Math.random()*20, ...base }]
+    const nid = uniqueId()
+    setModules(prev => {
+      const canonical = prev.find(m => m.id === activeModRef.current) || prev[0]
+      const count = canonical?.players.length || 0
+      const name = `Joueur ${count + 1}`
+      const color = COLORS[count % COLORS.length]
+      const x = 40 + Math.random() * 20, y = 40 + Math.random() * 20
+      return prev.map(m => {
+        if (m.players.some(p => p.id === nid)) return m
+        return { ...m, players: [...m.players, { id: nid, name, color, x, y, ...baseFor(m.type) }] }
+      })
     })
-  }, [setActivePlayers, modules])
+  }, [])
 
+  // Retire le joueur de TOUTES les parties
   const removePlayer = useCallback((id) => {
-    setActivePlayers(prev => prev.filter(p => p.id !== id))
+    setModules(prev => prev.map(m => ({ ...m, players: m.players.filter(p => p.id !== id) })))
     setSelectedId(sel => sel === id ? null : sel)
-  }, [setActivePlayers])
+  }, [])
 
   // ── Gestion modules ───────────────────────────────────────────────────────
+  // Une nouvelle partie reprend automatiquement TOUS les joueurs existants (roster global)
+  const playersFromRoster = (prev, type) => {
+    const roster = buildRoster(prev)
+    if (!roster.size) return (type === 'pronostic' ? makePronoModule(0) : makeModule(0, '')).players
+    return [...roster.values()].map(r => ({
+      id: r.id, name: r.name, color: r.color,
+      x: r.x ?? (40 + Math.random() * 20), y: r.y ?? (40 + Math.random() * 20),
+      ...baseFor(type),
+    }))
+  }
+
   const addModule = useCallback(() => {
-    const nid = Date.now() * 1000 + Math.floor(Math.random() * 1000)
+    const nid = uniqueId()
     setModules(prev => {
       const num = prev.filter(m => m.type==='forfaits').length + 1
       const name = num===1 ? '1ère Partie' : `${num}ème Partie`
-      return [...prev, makeModule(nid, name)]
+      return [...prev, { id: nid, name, type: 'forfaits', players: playersFromRoster(prev, 'forfaits'), settings: { ...DEFAULT_SETTINGS } }]
     })
     setActiveMod(nid); setTab('module')
   }, [])
 
   const addPronoModule = useCallback(() => {
-    const nid = Date.now() * 1000 + Math.floor(Math.random() * 1000)
-    setModules(prev => { const mod = { ...makePronoModule(nid), name:`Pronostics ${prev.filter(m=>m.type==='pronostic').length+1}` }; return [...prev, mod] })
+    const nid = uniqueId()
+    setModules(prev => {
+      const name = `Pronostics ${prev.filter(m=>m.type==='pronostic').length+1}`
+      return [...prev, { id: nid, name, type: 'pronostic', players: playersFromRoster(prev, 'pronostic'), settings: { pronoBonus: 20 } }]
+    })
     setActiveMod(nid); setTab('module')
   }, [])
 
@@ -256,7 +338,12 @@ export default function App() {
           </div>
         </div>
         {!isProno && (
-          <div className="tier-bar">
+          <div className="tier-bar" style={{ position:'relative' }}>
+            <div style={{ display:'flex', alignItems:'baseline', justifyContent:'center', gap:8, marginBottom:6, fontFamily:"'Barlow Condensed',sans-serif" }}>
+              <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:'1.35rem', color:'var(--gold)', letterSpacing:1, lineHeight:1 }}>{totalGoals}</span>
+              <span style={{ fontSize:'.78rem', color:'rgba(240,244,255,.6)', letterSpacing:1 }}>BUTS SUR {t2} · OBJECTIF</span>
+              <span style={{ fontSize:'.78rem', color:'rgba(240,244,255,.4)' }}>({Math.min(100, Math.round((totalGoals / t2) * 100))}%)</span>
+            </div>
             <div className="tier-segments">
               <div className="tier-seg tier1" style={{ width:`${(t1/(t2+15))*100}%` }}>
                 <span>0→{t1} · {modSettings.tier1Rate}€</span>
@@ -317,7 +404,7 @@ export default function App() {
         {tab === 'module' && (
           isProno
             ? <PronosticModule players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} />
-            : <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} />
+            : <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} pronoBonusById={pronoBonusById} />
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}
         {tab === 'rules' && <Rules totalGoals={totalGoals} currentTier={currentTier} settings={modSettings} moduleName={activeModule?.name} />}
@@ -335,6 +422,7 @@ export default function App() {
             onAddModule={addModule} onAddPronoModule={addPronoModule}
             onRenameModule={renameModule} onRemoveModule={removeModule}
             currentTier={currentTier} tierRate={tierRate} fbStatus={fbStatus}
+            pronoBonusById={pronoBonusById}
           />
         )}
       </main>

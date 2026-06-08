@@ -3,7 +3,7 @@ import { getPlayerEarnings, isTopScorer, hasHatTrick, DEFAULT_SETTINGS } from '.
 
 function getInitials(name) { return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
 
-export default function PlayerModal({ player, allPeople, totalGoals, settings, onAddGoal, onRemoveGoal, onAddSlot, onUpdatePerson, onClose }) {
+export default function PlayerModal({ player, allPeople, totalGoals, settings, pronoBonus = 0, onAddGoal, onRemoveGoal, onAddSlot, onUpdatePerson, onClose }) {
   const [editingName, setEditingName] = useState(false)
   const [nameVal, setNameVal] = useState(player.name)
   const [lastFilled, setLastFilled] = useState(null)
@@ -12,6 +12,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, o
   useEffect(() => { setNameVal(player.name) }, [player.name])
 
   const earnings = getPlayerEarnings(player, allPeople, totalGoals, s)
+  const totalEarnings = earnings + pronoBonus
   const isTop = isTopScorer(player, allPeople, s)
   const ht = hasHatTrick(player)
   const displaySlots = Math.max(3 + (player.extraSlots || 0), player.goals + 1)
@@ -71,8 +72,8 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, o
             <div className="modal-stat-label">Forfaits</div>
           </div>
           <div className="modal-stat">
-            <div className="modal-stat-num" style={{ color: earnings > 0 ? '#2ecc71' : 'var(--text-dim)' }}>{earnings.toFixed(2)}€</div>
-            <div className="modal-stat-label">{isTop ? '🏆 Prime Top' : 'Gain estimé'}</div>
+            <div className="modal-stat-num" style={{ color: totalEarnings > 0 ? '#2ecc71' : 'var(--text-dim)' }}>{totalEarnings.toFixed(2)}€</div>
+            <div className="modal-stat-label">{isTop ? '🏆 Prime Top' : 'Gain total'}{pronoBonus > 0 ? ` · dont 🎯 +${pronoBonus}€ prono` : ''}</div>
           </div>
         </div>
 

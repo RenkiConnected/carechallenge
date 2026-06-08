@@ -36,7 +36,7 @@ function PitchSVG() {
   )
 }
 
-export default function Pitch({ players, coaches, selectedId, onSelect, onUpdatePerson, onAddGoal, onRemoveGoal, onAddSlot, allPeople, totalGoals, settings }) {
+export default function Pitch({ players, coaches, selectedId, onSelect, onUpdatePerson, onAddGoal, onRemoveGoal, onAddSlot, allPeople, totalGoals, settings, pronoBonusById = {} }) {
   const pitchRef = useRef(null)
   const drag = useRef({ active:false, moved:false, id:null })
 
@@ -144,6 +144,7 @@ export default function Pitch({ players, coaches, selectedId, onSelect, onUpdate
         <PlayerModal
           player={selectedPerson} allPeople={allPeople}
           totalGoals={totalGoals} settings={settings}
+          pronoBonus={pronoBonusById[selectedPerson.id] || 0}
           onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal}
           onAddSlot={onAddSlot} onUpdatePerson={onUpdatePerson}
           onClose={() => onSelect(null)}
