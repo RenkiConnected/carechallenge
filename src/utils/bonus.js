@@ -18,10 +18,11 @@ export const VALIDATED_BALL_VALUE = 20
 
 // Taux par ballon "normal" d'un joueur (palier courant, ou top buteur)
 function ballRateFor(player, players, totalGoals, s) {
-  // TOP BUTEUR : dès que le total collectif dépasse le seuil (> tier2Threshold, soit >50)
-  // OU si la phase est marquée terminée, le meilleur buteur UNIQUE a TOUS ses forfaits
-  // à 20€ (rétroactif).
-  if (s.phaseEnded || totalGoals > s.tier2Threshold) {
+  // Seuil de déclenchement du bonus top buteur = objectif de la partie (défaut: tier2Threshold)
+  const objective = s.objective ?? s.tier2Threshold
+  // TOP BUTEUR : dès que le total collectif dépasse l'objectif (ex. >50 partie 1, >100 partie 2)
+  // OU si forcé, le meilleur buteur UNIQUE a TOUS ses ballons à 20€ (rétroactif).
+  if (s.phaseEnded || totalGoals > objective) {
     const maxG = Math.max(...players.map(p => p.goals || 0), 0)
     const tops = players.filter(p => (p.goals || 0) === maxG && maxG > 0)
     if (tops.length === 1 && (player.goals || 0) === maxG) return s.topScorerRate
@@ -177,8 +178,9 @@ export function getTierRate(totalGoals, settings = DEFAULT_SETTINGS) {
 export function isTopScorer(player, players, settings = DEFAULT_SETTINGS) {
   const s = { ...DEFAULT_SETTINGS, ...settings }
   if (!player.goals) return false
+  const objective = s.objective ?? s.tier2Threshold
   const total = players.reduce((a, p) => a + (p.goals || 0), 0)
-  if (!(s.phaseEnded || total > s.tier2Threshold)) return false
+  if (!(s.phaseEnded || total > objective)) return false
   const maxG = Math.max(...players.map(p => p.goals||0), 0)
   return player.goals === maxG && players.filter(p => (p.goals||0) === maxG).length === 1
 }

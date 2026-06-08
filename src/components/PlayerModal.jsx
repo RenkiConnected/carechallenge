@@ -11,6 +11,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
 
   useEffect(() => { setNameVal(player.name) }, [player.name])
 
+  const unit = s.unit || 'forfait'
   const earnings = getPlayerEarnings(player, allPeople, totalGoals, s)
   const totalEarnings = getPlayerTotalEarnings(player, allPeople, totalGoals, s, validatedCount)
   const vp = Math.min(validatedCount || 0, player.goals || 0)
@@ -71,7 +72,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
         <div className="modal-stats">
           <div className="modal-stat">
             <div className="modal-stat-num" style={{ color: isTop ? '#ff6b35' : 'var(--gold)' }}>{player.goals}</div>
-            <div className="modal-stat-label">Forfaits</div>
+            <div className="modal-stat-label">{unit==="ligne"?"Lignes":"Forfaits"}</div>
           </div>
           <div className="modal-stat">
             <div className="modal-stat-num" style={{ color: totalEarnings > 0 ? '#2ecc71' : 'var(--text-dim)' }}>{totalEarnings.toFixed(2)}€</div>
@@ -86,7 +87,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
             <div style={{ flex:1 }}>
               <div className="ht-title">COUP DU CHAPEAU !</div>
               <div className="ht-sub">
-                {isTop ? `⭐ Meilleur buteur · Prime ${s.topScorerRate}€/forfait garantie !` : `3+ forfaits · Éligible au palier ${s.tier3Rate}€ !`}
+                {isTop ? `⭐ Meilleur buteur · Prime ${s.topScorerRate}€/${unit} garantie !` : `3+ ${unit}s · Éligible au palier ${s.tier3Rate}€ !`}
               </div>
             </div>
             <span style={{ fontSize:'1.8rem' }}>🎉</span>
@@ -95,7 +96,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
 
         {/* Voting balls */}
         <div className="balls-section">
-          <div className="balls-title">⚽ Cliquer pour enregistrer un forfait</div>
+          <div className="balls-title">⚽ Cliquer pour enregistrer un{unit==="ligne"?"e ligne":" forfait"}</div>
           <div className="balls-grid">
             {balls.map((_, i) => {
               const filled = i < player.goals
@@ -104,7 +105,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
                 <button key={i}
                   className={`goal-ball ${filled ? 'filled' : 'empty'}`}
                   onClick={e => handleBallClick(i, e)}
-                  title={filled ? 'Cliquer pour annuler' : 'Enregistrer un forfait'}
+                  title={filled ? 'Cliquer pour annuler' : 'Enregistrer'}
                   style={isNew ? { animation:'fill-ball .4s cubic-bezier(.34,1.56,.64,1)' } : {}}
                 >⚽</button>
               )
@@ -130,10 +131,10 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
         <div style={{ marginTop:12, padding:'8px 12px', background:'rgba(255,255,255,.04)', borderRadius:8, fontFamily:"'Barlow Condensed',sans-serif", fontSize:'.78rem', color:'rgba(240,244,255,.5)', lineHeight:1.6 }}>
           💡 Taux actuel :{' '}
           <strong style={{ color:'var(--gold)' }}>
-            {isTop ? `${s.topScorerRate}€/forfait (meilleur buteur !)` :
-             totalGoals > s.tier2Threshold ? (player.goals >= s.minForTier3 ? `${s.tier3Rate}€/forfait` : `${s.tier2Rate}€/forfait (besoin de ${s.minForTier3}+ forfaits)`) :
-             totalGoals > s.tier1Threshold ? `${s.tier2Rate}€/forfait` :
-             `${s.tier1Rate}€/forfait`}
+            {isTop ? `${s.topScorerRate}€/${unit} (meilleur buteur !)` :
+             totalGoals > s.tier2Threshold ? (player.goals >= s.minForTier3 ? `${s.tier3Rate}€/${unit}` : `${s.tier2Rate}€/${unit} (besoin de ${s.minForTier3}+ ${unit}s)`) :
+             totalGoals > s.tier1Threshold ? `${s.tier2Rate}€/${unit}` :
+             `${s.tier1Rate}€/${unit}`}
           </strong>
         </div>
       </div>

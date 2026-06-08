@@ -29,6 +29,15 @@ function makePronoModule(id) {
   return { id, name: 'Bon Pronostiqueur', type: 'pronostic', players: BASE_PLAYERS.map(p => ({ ...p, goals: 0, pronos: 0, validatedPronos: 0, franceScore: '', irelandScore: '' })), settings: { pronoBonus: 20 } }
 }
 
+// Préréglage 2ème partie — Phase de poules (objectif 100 lignes, 12→27 juillet)
+const PART2_SETTINGS = {
+  tier1Rate: 10, tier2Rate: 12, tier3Rate: 15, topScorerRate: 20,
+  tier1Threshold: 50, tier2Threshold: 80, objective: 100,
+  phaseEnded: false, minForTier3: 3,
+  unit: 'ligne', phase: 'poules',
+  bannerPhase: 'PHASE DE POULES', bannerDates: 'DU 12 AU 27 JUILLET 2026',
+}
+
 function loadLocal() { try { const r = localStorage.getItem('fc2026_v5'); return r ? JSON.parse(r) : null } catch { return null } }
 function saveLocal(d) { try { localStorage.setItem('fc2026_v5', JSON.stringify(d)) } catch {} }
 
@@ -147,7 +156,16 @@ export default function App() {
   // Restauration : recharge depuis un objet importé puis pousse sur le serveur (gagne sur tout)
   const importData = useCallback((obj) => {
     if (!obj || !Array.isArray(obj.modules)) return false
-    setModules(reconcileModules(obj.modules))
+    let mods = obj.modules
+    // Garantir la présence de la 2ème partie (Phase de poules) même si la sauvegarde est ancienne
+    if (!mods.some(m => m.settings?.phase === 'poules')) {
+      const roster = buildRoster(mods)
+      const players = roster.size
+        ? [...roster.values()].map(r => ({ id:r.id, name:r.name, color:r.color, x:r.x ?? 50, y:r.y ?? 50, goals:0, extraSlots:0 }))
+        : []
+      mods = [...mods, { id: uniqueId(), name:'2ème Partie', type:'forfaits', players, settings:{ ...PART2_SETTINGS } }]
+    }
+    setModules(reconcileModules(mods))
     if (obj.coaches) setCoaches(obj.coaches)
     if (obj.activeMod) setActiveMod(obj.activeMod)
     setTimeout(() => forcePush(), 80) // horodatage neuf → restauration prioritaire partout
@@ -224,6 +242,24 @@ export default function App() {
   }, [])
 
   useEffect(() => { persist(modules, coaches, activeMod) }, [modules, coaches, activeMod, persist])
+
+  // Création AUTOMATIQUE de la 2ème partie (Phase de poules), une seule fois, après synchro
+  const p2Done = useRef(false)
+  useEffect(() => {
+    if (p2Done.current) return
+    // attendre d'avoir l'état réel (serveur si en ligne, sinon local)
+    if (isConfigured && db && !hydrated.current && fbStatus === 'connecting') return
+    const hasPart2 = modules.some(m => m.settings?.phase === 'poules')
+    if (hasPart2 || localStorage.getItem('fc2026_p2') === 'done') { p2Done.current = true; return }
+    p2Done.current = true
+    localStorage.setItem('fc2026_p2', 'done')
+    const nid = uniqueId()
+    setModules(prev => {
+      if (prev.some(m => m.settings?.phase === 'poules')) return prev
+      const players = playersFromRoster(prev, 'forfaits') // lignes à 0, terrain vierge
+      return [...prev, { id: nid, name: '2ème Partie', type: 'forfaits', players, settings: { ...PART2_SETTINGS } }]
+    })
+  }, [modules, fbStatus])
 
   // ── Computed ──────────────────────────────────────────────────────────────
   const activeModule  = modules.find(m => m.id === activeMod) || modules[0]
@@ -374,8 +410,12 @@ export default function App() {
     const nid = uniqueId()
     setModules(prev => {
       const num = prev.filter(m => m.type==='forfaits').length + 1
+      const players = playersFromRoster(prev, 'forfaits') // lignes/forfaits à 0 (terrain vierge)
+      if (num === 2) {
+        return [...prev, { id: nid, name: '2ème Partie', type: 'forfaits', players, settings: { ...PART2_SETTINGS } }]
+      }
       const name = num===1 ? '1ère Partie' : `${num}ème Partie`
-      return [...prev, { id: nid, name, type: 'forfaits', players: playersFromRoster(prev, 'forfaits'), settings: { ...DEFAULT_SETTINGS } }]
+      return [...prev, { id: nid, name, type: 'forfaits', players, settings: { ...DEFAULT_SETTINGS } }]
     })
     setActiveMod(nid); setTab('module')
   }, [])
@@ -416,6 +456,10 @@ export default function App() {
   }, [setActivePlayers])
 
   const t1=modSettings.tier1Threshold||40, t2=modSettings.tier2Threshold||50
+  const objective = modSettings.objective ?? t2
+  const unit = modSettings.unit || 'forfait'
+  const unitU = unit.toUpperCase() + 'S' // FORFAITS / LIGNES
+  const progressPct = Math.min(100, Math.round((totalGoals / objective) * 100))
 
   return (
     <div className="app">
@@ -429,8 +473,8 @@ export default function App() {
           <div className="header-stats">
             {!isProno ? (
               <>
-                <div className="stat-badge"><span className="stat-num">{totalGoals}</span><span className="stat-label">FORFAITS</span></div>
-                <div className={`stat-badge tier-${currentTier}`}><span className="stat-num">{tierRate}€</span><span className="stat-label">/ FORFAIT</span></div>
+                <div className="stat-badge"><span className="stat-num">{totalGoals}</span><span className="stat-label">{unitU}</span></div>
+                <div className={`stat-badge tier-${currentTier}`}><span className="stat-num">{tierRate}€</span><span className="stat-label">/ {unit.toUpperCase()}</span></div>
               </>
             ) : (
               <div className="stat-badge" style={{ borderColor:'rgba(255,152,0,.4)', background:'rgba(255,152,0,.08)' }}>
@@ -448,8 +492,8 @@ export default function App() {
           <div className="tier-bar" style={{ position:'relative' }}>
             <div style={{ display:'flex', alignItems:'baseline', justifyContent:'center', gap:8, marginBottom:6, fontFamily:"'Barlow Condensed',sans-serif" }}>
               <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:'1.35rem', color:'var(--gold)', letterSpacing:1, lineHeight:1 }}>{totalGoals}</span>
-              <span style={{ fontSize:'.78rem', color:'rgba(240,244,255,.6)', letterSpacing:1 }}>BUTS SUR {t2} · OBJECTIF</span>
-              <span style={{ fontSize:'.78rem', color:'rgba(240,244,255,.4)' }}>({Math.min(100, Math.round((totalGoals / t2) * 100))}%)</span>
+              <span style={{ fontSize:'.78rem', color:'rgba(240,244,255,.6)', letterSpacing:1 }}>{unitU} SUR {objective} · OBJECTIF</span>
+              <span style={{ fontSize:'.78rem', color:'rgba(240,244,255,.4)' }}>({progressPct}%)</span>
             </div>
             <div className="tier-segments">
               <div className="tier-seg tier1" style={{ width:`${(t1/(t2+15))*100}%` }}>
@@ -471,7 +515,7 @@ export default function App() {
           <div className="ticker-content">
             {isProno
               ? <><span>🎯 BON PRONOSTIQUEUR · FRANCE VS IRLANDE</span><span>⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS</span><span>🔧 MANAGER VALIDE LES BONS PRONOSTICS</span></>
-              : <><span>⚽ PHASE DE PRÉPARATION · JUSQU'AU 11/06/2026</span><span>🏆 OBJECTIF {t2} FORFAITS → {modSettings.tier3Rate}€ RÉTROACTIF</span><span>👑 TOP BUTEUR : {modSettings.topScorerRate}€ · FIN DE PHASE</span><span>🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE</span></>
+              : <><span>⚽ {modSettings.bannerPhase || 'PHASE DE PRÉPARATION'} · {modSettings.bannerDates || "JUSQU'AU 11/06/2026"}</span><span>🏆 OBJECTIF {objective} {unitU} → {modSettings.tier3Rate}€ RÉTROACTIF</span><span>👑 TOP BUTEUR : {modSettings.topScorerRate}€/{unit} SI OBJECTIF ATTEINT</span><span>🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE</span></>
             }
           </div>
         </div>

@@ -92,12 +92,14 @@ function ForfaitModuleView({ mod, coaches, validatedById = {}, isCanonical = fal
   const sorted = [...allPeople].sort((a,b) => (b.goals||0)-(a.goals||0) || a.name.localeCompare(b.name))
   const totalEarnings = sorted.reduce((sum,p) => sum+getPlayerTotalEarnings(p,allPeople,totalGoals,s,vpFor(p.id)), 0)
   const currentTier = getCurrentTier(totalGoals, s)
+  const unit = s.unit || 'forfait'
+  const objective = s.objective ?? s.tier2Threshold
 
   return (
     <div className="lb-module-block">
       <div className="lb-module-header">
         <span>⚽ {mod.name}</span>
-        <span className="lb-module-meta">{totalGoals} forfaits · Palier {currentTier} · {s.tier1Threshold&&totalGoals>=s.tier2Threshold?s.tier3Rate:totalGoals>=s.tier1Threshold?s.tier2Rate:s.tier1Rate}€/forfait</span>
+        <span className="lb-module-meta">{totalGoals}/{objective} {unit}s · Palier {currentTier} · {totalGoals>s.tier2Threshold?s.tier3Rate:totalGoals>s.tier1Threshold?s.tier2Rate:s.tier1Rate}€/{unit}</span>
       </div>
       {/* Tier progress */}
       <div style={{ display:'flex', gap:2, height:18, background:'rgba(0,0,0,.3)', marginBottom:2 }}>
@@ -204,7 +206,7 @@ function PronoModuleView({ mod, coaches }) {
 
 // ── Composant principal ───────────────────────────────────────────────────────
 export default function Leaderboard({ modules, coaches, activeModId }) {
-  const [view, setView] = useState('combined')
+  const [view, setView] = useState(activeModId || 'combined')
   const [expandedId, setExpandedId] = useState(null)
 
   const validatedById = {}
@@ -220,7 +222,7 @@ export default function Leaderboard({ modules, coaches, activeModId }) {
     <div className="leaderboard">
       <div className="lb-header">
         <h2>CLASSEMENT</h2>
-        <p>World Cup Challenge 2026 · Toutes parties confondues</p>
+        <p>{view === 'combined' ? 'World Cup Challenge 2026 · Toutes parties confondues' : (modules.find(m=>m.id===view)?.name || '') + ' · classement de la partie'}</p>
       </div>
 
       {/* View toggle */}
