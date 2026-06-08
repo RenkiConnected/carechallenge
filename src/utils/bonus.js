@@ -16,9 +16,12 @@ export const PRONO_BONUS = 20
 // Un ballon dont le pronostic a été validé par le Manager vaut 20€ (au lieu du taux palier)
 export const VALIDATED_BALL_VALUE = 20
 
-// Taux par ballon "normal" d'un joueur (palier courant, ou top buteur en fin de phase)
+// Taux par ballon "normal" d'un joueur (palier courant, ou top buteur)
 function ballRateFor(player, players, totalGoals, s) {
-  if (s.phaseEnded) {
+  // TOP BUTEUR : dès que le total collectif dépasse le seuil (> tier2Threshold, soit >50)
+  // OU si la phase est marquée terminée, le meilleur buteur UNIQUE a TOUS ses forfaits
+  // à 20€ (rétroactif).
+  if (s.phaseEnded || totalGoals > s.tier2Threshold) {
     const maxG = Math.max(...players.map(p => p.goals || 0), 0)
     const tops = players.filter(p => (p.goals || 0) === maxG && maxG > 0)
     if (tops.length === 1 && (player.goals || 0) === maxG) return s.topScorerRate
@@ -172,7 +175,10 @@ export function getTierRate(totalGoals, settings = DEFAULT_SETTINGS) {
   return tier1Rate
 }
 export function isTopScorer(player, players, settings = DEFAULT_SETTINGS) {
-  if (!settings?.phaseEnded || !player.goals) return false
+  const s = { ...DEFAULT_SETTINGS, ...settings }
+  if (!player.goals) return false
+  const total = players.reduce((a, p) => a + (p.goals || 0), 0)
+  if (!(s.phaseEnded || total > s.tier2Threshold)) return false
   const maxG = Math.max(...players.map(p => p.goals||0), 0)
   return player.goals === maxG && players.filter(p => (p.goals||0) === maxG).length === 1
 }

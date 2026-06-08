@@ -301,8 +301,8 @@ export default function Dashboard({
           <SettingField label="Seuil palier 1→2" value={s.tier1Threshold} onChange={v=>onUpdateSettings({tier1Threshold:v})} unit="forfaits" step={1} min={1} />
           <SettingField label="Seuil palier 2→3" value={s.tier2Threshold} onChange={v=>onUpdateSettings({tier2Threshold:v})} unit="forfaits" step={1} min={1} />
           <div style={{ height:1, background:'rgba(255,255,255,.07)', margin:'8px 0' }} />
-          <Toggle label="🏁 Phase terminée → Active bonus Top Buteur"
-            desc={s.phaseEnded?'✅ Prime 20€ appliquée au meilleur buteur unique':'⏳ Désactivé — à déclencher en fin de phase'}
+          <Toggle label="🏁 Forcer le bonus Top Buteur (20€/forfait)"
+            desc={s.phaseEnded?'✅ Forcé : le meilleur buteur unique a tous ses forfaits à 20€':'⚡ Automatique dès que le total dépasse 50 forfaits collectifs · ou forcer ici'}
             checked={!!s.phaseEnded} onChange={v=>onUpdateSettings({phaseEnded:v})} />
         </div>
       )}
