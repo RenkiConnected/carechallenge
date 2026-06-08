@@ -34,7 +34,7 @@ const PART2_SETTINGS = {
   tier1Rate: 10, tier2Rate: 12, tier3Rate: 15, topScorerRate: 20,
   tier1Threshold: 50, tier2Threshold: 80, objective: 100,
   phaseEnded: false, minForTier3: 3,
-  unit: 'ligne', phase: 'poules',
+  unit: 'forfait', phase: 'poules',
   bannerPhase: 'PHASE DE POULES', bannerDates: 'DU 12 AU 27 JUILLET 2026',
 }
 
@@ -89,6 +89,8 @@ function reconcileModules(modules) {
     // Migration : ancien taux de base 9.99€ → 10€
     let settings = m.settings
     if (settings && settings.tier1Rate === 9.99) settings = { ...settings, tier1Rate: 10 }
+    // Migration : Phase de poules désormais en "forfaits" (et non "lignes")
+    if (settings && settings.phase === 'poules' && settings.unit === 'ligne') settings = { ...settings, unit: 'forfait' }
     return { ...m, players, settings }
   })
 }
@@ -559,8 +561,10 @@ export default function App() {
           <div className="ticker-content">
             {(() => {
               const items = isProno
-                ? ['🎯 BON PRONOSTIQUEUR · FRANCE VS IRLANDE', '⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS', '🔧 MANAGER VALIDE LES BONS PRONOSTICS', '🏆 RÉSULTAT OFFICIEL SAISI PAR LE MANAGER']
-                : [`⚽ ${modSettings.bannerPhase || 'PHASE DE PRÉPARATION'} · ${modSettings.bannerDates || "JUSQU'AU 11/06/2026"}`, `🏆 OBJECTIF ${objective} ${unitU} → ${modSettings.tier3Rate}€ RÉTROACTIF`, `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/${unit} SI OBJECTIF ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
+                ? ['🎯 BON PRONOSTIQUEUR · FRANCE VS IRLANDE', '⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS', '🏆 CLASSEMENT COMPTABILISÉ DANS PRÉPARATION MONDIALE', '🔧 RÉSULTAT OFFICIEL SAISI PAR LE MANAGER']
+                : (modSettings.phase === 'poules'
+                    ? [`⚽ ${modSettings.bannerPhase || 'PHASE DE POULES'} · ${modSettings.bannerDates || 'DU 12 AU 27 JUILLET 2026'}`, `🏆 OBJECTIF ${objective} FORFAITS → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🇫🇷 FRANCE VS IRLANDE · PHASE DE POULES', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/FORFAIT SI 100 ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
+                    : [`⚽ ${modSettings.bannerPhase || 'PHASE DE PRÉPARATION MONDIALE'} · ${modSettings.bannerDates || "JUSQU'AU 11/06/2026"}`, `🏆 OBJECTIF ${objective} ${unitU} → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🎯 PRONOSTIC FRANCE VS IRLANDE COMPTÉ ICI', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/${unit} SI OBJECTIF ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE'])
               // contenu dupliqué pour un défilement continu sans coupure
               return [...items, ...items].map((t, i) => <span key={i}>{t}</span>)
             })()}
