@@ -25,25 +25,12 @@ const BASE_COACHES = [
 function makeModule(id, name) {
   return { id, name, type: 'forfaits', players: BASE_PLAYERS.map(p => ({ ...p })), settings: { ...DEFAULT_SETTINGS } }
 }
-
 function makePronoModule(id) {
-  return {
-    id, name: 'Bon Pronostiqueur', type: 'pronostic',
-    players: BASE_PLAYERS.map(p => ({
-      ...p, goals: 0,
-      pronos: 0, validatedPronos: 0,
-      franceScore: '', irelandScore: '',
-    })),
-    settings: { pronoBonus: 20 },
-  }
+  return { id, name: 'Bon Pronostiqueur', type: 'pronostic', players: BASE_PLAYERS.map(p => ({ ...p, goals: 0, pronos: 0, validatedPronos: 0, franceScore: '', irelandScore: '' })), settings: { pronoBonus: 20 } }
 }
 
-function ordinalName(n) { return n === 1 ? '1ère Partie' : `${n}ème Partie` }
-
-function loadLocal() { try { const r = localStorage.getItem('fc2026_v4'); return r ? JSON.parse(r) : null } catch { return null } }
-function saveLocal(data) { try { localStorage.setItem('fc2026_v4', JSON.stringify(data)) } catch {} }
-
-const DEBOUNCE = 900
+function loadLocal() { try { const r = localStorage.getItem('fc2026_v5'); return r ? JSON.parse(r) : null } catch { return null } }
+function saveLocal(d) { try { localStorage.setItem('fc2026_v5', JSON.stringify(d)) } catch {} }
 
 export default function App() {
   const saved = loadLocal()
@@ -55,127 +42,194 @@ export default function App() {
   const [dashAuth,   setDashAuth]   = useState(false)
   const [fbStatus,   setFbStatus]   = useState('connecting')
   const [goalBurst,  setGoalBurst]  = useState(null)
+
+  // ── REFS (évite les stale closures dans les callbacks) ─────────────────────
+  const activeModRef = useRef(activeMod)
+  useEffect(() => { activeModRef.current = activeMod }, [activeMod])
   const saveTimer = useRef(null)
-  const remoteRef = useRef(false)
+
+  // Identité unique de CE client (pour ignorer nos propres échos Firebase)
+  const clientId = useRef(Math.random().toString(36).slice(2) + Date.now().toString(36))
+  // Horodatage de la dernière MODIFICATION LOCALE non encore confirmée par le serveur.
+  // Tant qu'un snapshot entrant est plus ancien que ça, on NE l'applique PAS (sinon il
+  // écraserait un ajout/suppression qu'on vient de faire et qui n'est pas encore écrit).
+  const lastLocalEdit = useRef(0)
+  // Quand on applique un état distant, on ne veut pas le ré-écrire immédiatement.
+  const applyingRemote = useRef(false)
+  // Date du dernier état accepté (local ou distant) — pour comparer les snapshots.
+  const lastAcceptedAt = useRef(0)
 
   // ── Firebase ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isConfigured || !db) { setFbStatus('offline'); return }
-    const unsub = onSnapshot(doc(db, 'challenge', 'state'), snap => {
-      if (snap.exists()) {
+    const unsub = onSnapshot(doc(db, 'challenge', 'state'),
+      snap => {
+        setFbStatus('ok')
+        if (!snap.exists()) return
         const d = snap.data()
-        remoteRef.current = true
+
+        // 1) C'est notre propre écriture qui revient → on a déjà cet état, on ignore.
+        if (d.clientId && d.clientId === clientId.current) {
+          lastAcceptedAt.current = d.updatedAt || lastAcceptedAt.current
+          // notre écriture est confirmée : plus de modif locale en attente
+          if ((d.updatedAt || 0) >= lastLocalEdit.current) lastLocalEdit.current = 0
+          return
+        }
+
+        // 2) Snapshot plus ancien que nos modifs locales non écrites → on l'ignore
+        //    (sinon il efface ce qu'on vient de faire).
+        const ts = d.updatedAt || 0
+        if (lastLocalEdit.current && ts < lastLocalEdit.current) return
+        if (ts && ts <= lastAcceptedAt.current) return
+
+        // 3) État distant légitime (autre client, plus récent) → on l'applique.
+        applyingRemote.current = true
         if (d.modules)   setModules(d.modules)
         if (d.coaches)   setCoaches(d.coaches)
         if (d.activeMod) setActiveMod(d.activeMod)
-        setTimeout(() => { remoteRef.current = false }, 200)
-      }
-      setFbStatus('ok')
-    }, err => { console.warn('[FB]', err); setFbStatus('offline') })
+        lastAcceptedAt.current = ts
+      },
+      err => { console.warn('[FB]', err.code, err.message); setFbStatus('offline') }
+    )
     return unsub
   }, [])
 
   const persist = useCallback((m, c, am) => {
-    if (remoteRef.current) return
-    const data = { modules: m, coaches: c, activeMod: am, updatedAt: Date.now() }
+    // Ne pas ré-écrire l'état qu'on vient juste de recevoir du serveur.
+    if (applyingRemote.current) { applyingRemote.current = false; return }
+
+    const now = Date.now()
+    lastLocalEdit.current = now
+    lastAcceptedAt.current = now
+    const data = { modules: m, coaches: c, activeMod: am, updatedAt: now, clientId: clientId.current }
     saveLocal(data)
+
     if (isConfigured && db) {
       if (saveTimer.current) clearTimeout(saveTimer.current)
       saveTimer.current = setTimeout(() => {
-        setDoc(doc(db, 'challenge', 'state'), data).catch(e => { console.warn('[FB write]', e); setFbStatus('offline') })
-      }, DEBOUNCE)
+        setDoc(doc(db,'challenge','state'), data).catch(e => { console.warn('[FB write]',e); setFbStatus('offline') })
+      }, 400)
     }
   }, [])
 
   useEffect(() => { persist(modules, coaches, activeMod) }, [modules, coaches, activeMod, persist])
 
-  // ── Active module ─────────────────────────────────────────────────────────
+  // ── Computed ──────────────────────────────────────────────────────────────
   const activeModule  = modules.find(m => m.id === activeMod) || modules[0]
   const modPlayers    = activeModule?.players || []
   const modSettings   = activeModule?.settings || DEFAULT_SETTINGS
   const isProno       = activeModule?.type === 'pronostic'
   const allPeople     = [...modPlayers, ...coaches]
-  const totalGoals    = isProno ? 0 : allPeople.reduce((s,p) => s + p.goals, 0)
+  const totalGoals    = isProno ? 0 : allPeople.reduce((s,p) => s+(p.goals||0), 0)
   const currentTier   = getCurrentTier(totalGoals, modSettings)
   const tierRate      = getTierRate(totalGoals, modSettings)
 
-  // ── Updaters ──────────────────────────────────────────────────────────────
-  const updateModPlayers = useCallback((updater) => {
-    setModules(prev => prev.map(m => m.id === activeMod ? { ...m, players: updater(m.players) } : m))
-  }, [activeMod])
+  // ── Helpers d'update robustes (utilise ref, pas closure) ──────────────────
+  // Met à jour les joueurs du MODULE ACTIF
+  const setActivePlayers = useCallback((updater) => {
+    setModules(prev => prev.map(m =>
+      m.id === activeModRef.current ? { ...m, players: updater(m.players) } : m
+    ))
+  }, []) // pas de dépendances → stable, utilise le ref
 
+  // Met à jour les settings du module actif
+  const setActiveSettings = useCallback((updates) => {
+    setModules(prev => prev.map(m =>
+      m.id === activeModRef.current ? { ...m, settings: { ...m.settings, ...updates } } : m
+    ))
+  }, [])
+
+  // ── Actions joueurs ───────────────────────────────────────────────────────
+  // Mise à jour générique (player dans module actif OU coach)
   const updatePerson = useCallback((id, updates) => {
-    updateModPlayers(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
+    setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
     setCoaches(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
-  }, [updateModPlayers])
+  }, [setActivePlayers])
 
   const addGoal = useCallback((id, coords) => {
-    updateModPlayers(prev => prev.map(p => p.id === id ? { ...p, goals: p.goals + 1 } : p))
-    setCoaches(prev => prev.map(p => p.id === id ? { ...p, goals: p.goals + 1 } : p))
+    setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, goals: (p.goals||0)+1 } : p))
+    setCoaches(prev => prev.map(p => p.id === id ? { ...p, goals: (p.goals||0)+1 } : p))
     if (coords) {
       setGoalBurst({ x: coords.x, y: coords.y, id: Date.now() })
       setTimeout(() => setGoalBurst(null), 700)
     }
-  }, [updateModPlayers])
+  }, [setActivePlayers])
 
   const removeGoal = useCallback((id) => {
-    updateModPlayers(prev => prev.map(p => p.id === id && p.goals > 0 ? { ...p, goals: p.goals - 1 } : p))
-    setCoaches(prev => prev.map(p => p.id === id && p.goals > 0 ? { ...p, goals: p.goals - 1 } : p))
-  }, [updateModPlayers])
+    setActivePlayers(prev => prev.map(p => p.id === id && (p.goals||0) > 0 ? { ...p, goals: p.goals-1 } : p))
+    setCoaches(prev => prev.map(p => p.id === id && (p.goals||0) > 0 ? { ...p, goals: p.goals-1 } : p))
+  }, [setActivePlayers])
 
   const addSlot = useCallback((id) => {
-    updateModPlayers(prev => prev.map(p => p.id === id ? { ...p, extraSlots: (p.extraSlots||0)+1 } : p))
+    setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, extraSlots: (p.extraSlots||0)+1 } : p))
     setCoaches(prev => prev.map(p => p.id === id ? { ...p, extraSlots: (p.extraSlots||0)+1 } : p))
-  }, [updateModPlayers])
+  }, [setActivePlayers])
 
   const addPlayer = useCallback(() => {
-    const colors = ['#e74c3c','#3498db','#2ecc71','#e67e22','#9b59b6','#1abc9c','#e91e8c','#ff9800']
-    const nid = Date.now()
-    const base = isProno
-      ? { pronos:0, validatedPronos:0, franceScore:'', irelandScore:'', goals:0 }
-      : { goals:0, extraSlots:0 }
-    updateModPlayers(prev => [...prev, { id:nid, name:`Joueur ${prev.length+1}`, color:colors[prev.length%colors.length], x:40+Math.random()*20, y:40+Math.random()*20, ...base }])
-  }, [updateModPlayers, isProno])
+    const COLORS = ['#e74c3c','#3498db','#2ecc71','#e67e22','#9b59b6','#1abc9c','#e91e8c','#ff9800','#00bcd4','#f1c40f']
+    setActivePlayers(prev => {
+      const mod = modules.find(m => m.id === activeModRef.current)
+      const isPronoMod = mod?.type === 'pronostic'
+      const nid = Date.now() * 1000 + Math.floor(Math.random() * 1000)
+      const base = isPronoMod
+        ? { goals:0, pronos:0, validatedPronos:0, franceScore:'', irelandScore:'' }
+        : { goals:0, extraSlots:0 }
+      return [...prev, { id: nid, name: `Joueur ${prev.length+1}`, color: COLORS[prev.length % COLORS.length], x: 40+Math.random()*20, y: 40+Math.random()*20, ...base }]
+    })
+  }, [setActivePlayers, modules])
 
   const removePlayer = useCallback((id) => {
-    updateModPlayers(prev => prev.filter(p => p.id !== id))
-    if (selectedId === id) setSelectedId(null)
-  }, [updateModPlayers, selectedId])
+    setActivePlayers(prev => prev.filter(p => p.id !== id))
+    setSelectedId(sel => sel === id ? null : sel)
+  }, [setActivePlayers])
 
-  // ── Module management ─────────────────────────────────────────────────────
+  // ── Gestion modules ───────────────────────────────────────────────────────
   const addModule = useCallback(() => {
-    const nid = Date.now()
-    const num = modules.filter(m => m.type === 'forfaits').length + 1
-    setModules(prev => [...prev, makeModule(nid, ordinalName(num))])
+    const nid = Date.now() * 1000 + Math.floor(Math.random() * 1000)
+    setModules(prev => {
+      const num = prev.filter(m => m.type==='forfaits').length + 1
+      const name = num===1 ? '1ère Partie' : `${num}ème Partie`
+      return [...prev, makeModule(nid, name)]
+    })
     setActiveMod(nid); setTab('module')
-  }, [modules])
+  }, [])
 
   const addPronoModule = useCallback(() => {
-    const nid = Date.now()
-    setModules(prev => [...prev, { ...makePronoModule(nid), name: `Pronostics ${prev.filter(m=>m.type==='pronostic').length+1}` }])
+    const nid = Date.now() * 1000 + Math.floor(Math.random() * 1000)
+    setModules(prev => { const mod = { ...makePronoModule(nid), name:`Pronostics ${prev.filter(m=>m.type==='pronostic').length+1}` }; return [...prev, mod] })
     setActiveMod(nid); setTab('module')
-  }, [modules])
+  }, [])
 
-  const renameModule   = useCallback((id, name) => { setModules(prev => prev.map(m => m.id===id ? {...m,name} : m)) }, [])
-  const removeModule   = useCallback((id) => {
-    if (modules.length <= 1) return alert('Impossible de supprimer le dernier module')
-    setModules(prev => { const next=prev.filter(m=>m.id!==id); if(activeMod===id) setActiveMod(next[0].id); return next })
-  }, [modules.length, activeMod])
-  const updateModSettings = useCallback((updates) => { setModules(prev => prev.map(m => m.id===activeMod ? {...m,settings:{...m.settings,...updates}} : m)) }, [activeMod])
-  const resetModScores    = useCallback(() => {
-    updateModPlayers(prev => prev.map(p => isProno ? {...p,pronos:0,validatedPronos:0,franceScore:'',irelandScore:''} : {...p,goals:0,extraSlots:0}))
-    if (!isProno) setCoaches(prev => prev.map(p => ({...p,goals:0,extraSlots:0})))
-  }, [updateModPlayers, isProno])
+  const renameModule = useCallback((id, name) => {
+    setModules(prev => prev.map(m => m.id === id ? { ...m, name } : m))
+  }, [])
+
+  const removeModule = useCallback((id) => {
+    setModules(prev => {
+      if (prev.length <= 1) return prev
+      const next = prev.filter(m => m.id !== id)
+      setActiveMod(am => am === id ? next[0].id : am)
+      return next
+    })
+  }, [])
+
+  const resetModScores = useCallback(() => {
+    setActivePlayers(prev => prev.map(p =>
+      p.pronos !== undefined
+        ? { ...p, pronos:0, validatedPronos:0, franceScore:'', irelandScore:'' }
+        : { ...p, goals:0, extraSlots:0 }
+    ))
+    setCoaches(prev => prev.map(p => ({ ...p, goals:0, extraSlots:0 })))
+  }, [setActivePlayers])
+
   const resetModPositions = useCallback(() => {
-    updateModPlayers(prev => prev.map((p,i) => BASE_PLAYERS[i] ? {...p,x:BASE_PLAYERS[i].x,y:BASE_PLAYERS[i].y} : p))
-  }, [updateModPlayers])
+    setActivePlayers(prev => prev.map((p,i) => BASE_PLAYERS[i] ? { ...p, x:BASE_PLAYERS[i].x, y:BASE_PLAYERS[i].y } : p))
+  }, [setActivePlayers])
 
   const t1=modSettings.tier1Threshold||40, t2=modSettings.tier2Threshold||50
-  const pct1=Math.min(100,(totalGoals/t1)*100), pct2=Math.min(100,Math.max(0,((totalGoals-t1)/(t2-t1))*100)), pct3=Math.min(100,Math.max(0,((totalGoals-t2)/15)*100))
 
   return (
     <div className="app">
-      {/* ── HEADER ── */}
       <header className="app-header">
         <div className="header-content">
           <img src="/favicon.png" alt="Logo" className="header-logo-img" />
@@ -186,14 +240,8 @@ export default function App() {
           <div className="header-stats">
             {!isProno ? (
               <>
-                <div className="stat-badge">
-                  <span className="stat-num">{totalGoals}</span>
-                  <span className="stat-label">FORFAITS</span>
-                </div>
-                <div className={`stat-badge tier-${currentTier}`}>
-                  <span className="stat-num">{tierRate}€</span>
-                  <span className="stat-label">/ FORFAIT</span>
-                </div>
+                <div className="stat-badge"><span className="stat-num">{totalGoals}</span><span className="stat-label">FORFAITS</span></div>
+                <div className={`stat-badge tier-${currentTier}`}><span className="stat-num">{tierRate}€</span><span className="stat-label">/ FORFAIT</span></div>
               </>
             ) : (
               <div className="stat-badge" style={{ borderColor:'rgba(255,152,0,.4)', background:'rgba(255,152,0,.08)' }}>
@@ -201,7 +249,7 @@ export default function App() {
                 <span className="stat-label">VALIDÉS</span>
               </div>
             )}
-            <div className="fb-dot">
+            <div className="fb-dot" title={fbStatus==='ok'?'Firebase connecté':fbStatus==='offline'?'Mode local':'Connexion...'}>
               <span style={{ color:fbStatus==='ok'?'#2ecc71':fbStatus==='offline'?'#e67e22':'#ffd700', fontSize:'1rem' }}>●</span>
               <span className="fb-dot-label">{fbStatus==='ok'?'Live':fbStatus==='offline'?'Local':'...'}</span>
             </div>
@@ -212,47 +260,44 @@ export default function App() {
             <div className="tier-segments">
               <div className="tier-seg tier1" style={{ width:`${(t1/(t2+15))*100}%` }}>
                 <span>0→{t1} · {modSettings.tier1Rate}€</span>
-                <div className="tier-fill" style={{ width:`${pct1}%` }} />
+                <div className="tier-fill" style={{ width:`${Math.min(100,(totalGoals/t1)*100)}%` }} />
               </div>
               <div className="tier-seg tier2" style={{ width:`${((t2-t1)/(t2+15))*100}%` }}>
                 <span>{t1+1}→{t2} · {modSettings.tier2Rate}€</span>
-                <div className="tier-fill" style={{ width:`${pct2}%` }} />
+                <div className="tier-fill" style={{ width:`${Math.min(100,Math.max(0,((totalGoals-t1)/(t2-t1))*100))}%` }} />
               </div>
               <div className="tier-seg tier3" style={{ flex:1 }}>
                 <span>{t2+1}+ · {modSettings.tier3Rate}€</span>
-                <div className="tier-fill" style={{ width:`${pct3}%` }} />
+                <div className="tier-fill" style={{ width:`${Math.min(100,Math.max(0,((totalGoals-t2)/15)*100))}%` }} />
               </div>
             </div>
           </div>
         )}
         <div className="ticker-wrap">
           <div className="ticker-content">
-            {isProno ? (
-              <><span>🎯 BON PRONOSTIQUEUR · FRANCE VS IRLANDE 08/06/2026</span><span>⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS</span><span>🔧 MANAGER : VALIDEZ LES BONS PRONOSTICS</span></>
-            ) : (
-              <><span>⚽ PHASE DE PRÉPARATION · JUSQU'AU 11/06/2026</span><span>🏆 OBJECTIF {t2} FORFAITS → {modSettings.tier3Rate}€ RÉTROACTIF</span><span>👑 TOP BUTEUR : {modSettings.topScorerRate}€/FORFAIT · FIN DE PHASE</span><span>🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE</span></>
-            )}
+            {isProno
+              ? <><span>🎯 BON PRONOSTIQUEUR · FRANCE VS IRLANDE</span><span>⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS</span><span>🔧 MANAGER VALIDE LES BONS PRONOSTICS</span></>
+              : <><span>⚽ PHASE DE PRÉPARATION · JUSQU'AU 11/06/2026</span><span>🏆 OBJECTIF {t2} FORFAITS → {modSettings.tier3Rate}€ RÉTROACTIF</span><span>👑 TOP BUTEUR : {modSettings.topScorerRate}€ · FIN DE PHASE</span><span>🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE</span></>
+            }
           </div>
         </div>
       </header>
 
-      {/* ── MODULE TABS ── */}
       <div className="module-tabs-bar">
         <div className="module-tabs-scroll">
           {modules.map(m => (
             <button key={m.id}
-              className={`module-tab ${tab==='module' && activeMod===m.id ? 'active' : ''} ${m.type==='pronostic'?'module-tab-prono':''}`}
+              className={`module-tab ${tab==='module'&&activeMod===m.id?'active':''} ${m.type==='pronostic'?'module-tab-prono':''}`}
               onClick={() => { setActiveMod(m.id); setTab('module'); setSelectedId(null) }}
             >
-              {m.type==='pronostic' ? '🎯' : '⚽'} {m.name}
+              {m.type==='pronostic'?'🎯':'⚽'} {m.name}
             </button>
           ))}
-          <button className="module-tab add-module-tab" onClick={addModule}>+ Partie</button>
-          <button className="module-tab add-prono-tab" onClick={addPronoModule}>+ Pronostic</button>
+          {dashAuth && <button className="module-tab add-module-tab" onClick={addModule}>+ Partie</button>}
+          {dashAuth && <button className="module-tab add-prono-tab" onClick={addPronoModule}>+ Pronostic</button>}
         </div>
       </div>
 
-      {/* ── NAV ── */}
       <nav className="app-nav">
         {[
           { key:'leaderboard', icon:'🏆', label:'Classement' },
@@ -268,41 +313,25 @@ export default function App() {
         ))}
       </nav>
 
-      {/* ── MAIN ── */}
       <main className="app-main">
         {tab === 'module' && (
-          isProno ? (
-            <PronosticModule
-              players={modPlayers} coaches={coaches}
-              dashAuth={dashAuth}
-              onUpdatePerson={updatePerson}
-            />
-          ) : (
-            <Pitch
-              players={modPlayers} coaches={coaches}
-              selectedId={selectedId} onSelect={setSelectedId}
-              onUpdatePerson={updatePerson}
-              onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot}
-              allPeople={allPeople} totalGoals={totalGoals} settings={modSettings}
-            />
-          )
+          isProno
+            ? <PronosticModule players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} />
+            : <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} />
         )}
-        {tab === 'leaderboard' && (
-          <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />
-        )}
-        {tab === 'rules' && (
-          <Rules totalGoals={totalGoals} currentTier={currentTier} settings={modSettings} moduleName={activeModule?.name} />
-        )}
+        {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}
+        {tab === 'rules' && <Rules totalGoals={totalGoals} currentTier={currentTier} settings={modSettings} moduleName={activeModule?.name} />}
         {tab === 'dashboard' && (
           <Dashboard
-            modules={modules} coaches={coaches} activeModId={activeMod} onSetActiveMod={setActiveMod}
+            modules={modules} coaches={coaches} activeModId={activeMod}
+            onSetActiveMod={(id) => { setActiveMod(id); activeModRef.current = id }}
             allPeople={allPeople} totalGoals={totalGoals} settings={modSettings}
             auth={dashAuth} onAuth={setDashAuth}
             onAddPlayer={addPlayer} onRemovePlayer={removePlayer}
             onUpdatePerson={updatePerson}
-            onAddGoal={id=>addGoal(id,null)} onRemoveGoal={removeGoal}
+            onAddGoal={(id) => addGoal(id, null)} onRemoveGoal={removeGoal}
             onResetScores={resetModScores} onResetPositions={resetModPositions}
-            onUpdateSettings={updateModSettings}
+            onUpdateSettings={setActiveSettings}
             onAddModule={addModule} onAddPronoModule={addPronoModule}
             onRenameModule={renameModule} onRemoveModule={removeModule}
             currentTier={currentTier} tierRate={tierRate} fbStatus={fbStatus}
