@@ -1,52 +1,93 @@
-# ⚽ Football Challenge 2026
+# ⚽ Football Challenge 2026 — World Cup Edition
 
-Application de gestion du challenge forfaits sur le thème de la Coupe du Monde 2026.
+Application de suivi du challenge forfaits, thème Coupe du Monde 2026.
 
-## 🚀 Installation
+---
+
+## 🚀 Lancement rapide
 
 ```bash
 npm install
 npm run dev
 ```
 
-## 📦 Build (pour déploiement)
+## 🔥 Configuration Firebase (persistance cloud)
 
+### 1. Créer le fichier `.env`
+```bash
+cp .env.example .env
+```
+
+### 2. Remplir vos credentials Firebase
+Dans la **Console Firebase** → Project Settings → General → Your apps → SDK setup and configuration
+
+```env
+VITE_FIREBASE_API_KEY=AIzaSy...
+VITE_FIREBASE_AUTH_DOMAIN=votre-projet.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=votre-projet
+VITE_FIREBASE_STORAGE_BUCKET=votre-projet.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
+VITE_FIREBASE_APP_ID=1:123456789:web:abcdef
+```
+
+### 3. Configurer Firestore
+1. Dans la Console Firebase → Firestore Database → Créer une base de données
+2. Mode **Production** (ou Test pour commencer)
+3. Règles de sécurité (onglet Règles) :
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /challenge/state {
+      allow read, write: if true;
+    }
+  }
+}
+```
+
+### 4. Déployer sur GitHub Pages
 ```bash
 npm run build
+# Puis pousser le dossier dist/ sur GitHub
+# Ou utiliser GitHub Actions
 ```
-Les fichiers de production seront dans le dossier `dist/`.
 
-## 🌐 Déploiement GitHub Pages
+**Note** : Pour GitHub Pages, ajouter les secrets dans Settings → Secrets and variables → Actions.
 
-1. Pusher le code sur GitHub
-2. Activer GitHub Pages sur la branche `main` → dossier `/dist`
-3. Ou utiliser GitHub Actions avec la config Vite
+---
 
 ## 🔐 Accès Manager
-
 Mot de passe : **Raphael2232**
 
-## 📋 Fonctionnalités
+---
 
-- ⚽ **Terrain interactif** : avatars glissables sur le terrain de foot
-- 🗳️ **Vote par ballons** : cliquer les ballons pour enregistrer les forfaits
-- 👑 **Hat-Trick** : couronne automatique à 3+ forfaits
-- 🏆 **Classement** : top buteurs avec calcul des primes en temps réel
-- 📋 **Règles** : page visuelle et motivante
-- 🔧 **Dashboard** : gestion complète des joueurs et scores (protégé)
+## 💰 Système de primes (configurable dans le Dashboard)
 
-## 💰 Système de primes
+| Palier | Taux défaut | Condition |
+|--------|-------------|-----------|
+| Base | 9,99€/forfait | Tous, 0→40 |
+| Palier 2 | 12€/forfait | Dès 40 forfaits cumulés |
+| Palier 3 | 15€/forfait | Dès 50 + individuel ≥ 3 |
+| Top Buteur | 20€/forfait | Déclenché manuellement en fin de phase |
 
-| Palier | Taux | Condition |
-|--------|------|-----------|
-| 0-40 forfaits | 10€/forfait | Tous |
-| 41-50 forfaits | 12€/forfait | Tous |
-| 51+ forfaits | 15€/forfait | Si individuel ≥ 3 |
-| Top buteur | 20€/forfait | Meilleur buteur unique |
+⚠️ Le bonus **Top Buteur 20€** ne se déclenche **jamais automatiquement** — il faut l'activer dans le Dashboard → "Phase de préparation terminée".
 
-## 🛠️ Tech
+---
 
-- React 18 + Vite
-- CSS custom (pas de framework UI)
-- localStorage pour la persistance des données
-- Responsive mobile + desktop
+## 🎮 Fonctionnalités
+
+- ⚽ Terrain SVG interactif avec avatars glissables (drag & drop)
+- 🗳️ Vote par ballons (gris → colorés) pour enregistrer les forfaits
+- 👑 Couronne automatique au hat-trick (≥3 forfaits)
+- 📊 Barre de progression paliers en temps réel
+- 🏆 Classement avec calcul des primes
+- 📋 Règles visuelles et motivantes
+- 🔧 Dashboard manager avec :
+  - Gestion joueurs (ajout, renommage, couleur, suppression)
+  - Modification manuelle des scores
+  - **Paramètres des taux de prime (tous modifiables)**
+  - **Toggle fin de phase → active le bonus top buteur**
+  - Reset scores / positions
+- 🔥 Sync Firebase temps réel (multi-appareils)
+- 💾 Fallback localStorage si Firebase non configuré
+- 📱 Responsive mobile + desktop
