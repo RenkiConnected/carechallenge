@@ -23,8 +23,8 @@ function ballRateFor(player, players, totalGoals, s) {
     const tops = players.filter(p => (p.goals || 0) === maxG && maxG > 0)
     if (tops.length === 1 && (player.goals || 0) === maxG) return s.topScorerRate
   }
-  if (totalGoals >= s.tier2Threshold)      return (player.goals >= (s.minForTier3 || 3)) ? s.tier3Rate : s.tier2Rate
-  if (totalGoals >= s.tier1Threshold)      return s.tier2Rate
+  if (totalGoals > s.tier2Threshold)       return (player.goals >= (s.minForTier3 || 3)) ? s.tier3Rate : s.tier2Rate
+  if (totalGoals > s.tier1Threshold)       return s.tier2Rate
   return s.tier1Rate
 }
 
@@ -161,14 +161,14 @@ function round2(n) { return Math.round(n * 100) / 100 }
 
 export function getCurrentTier(totalGoals, settings = DEFAULT_SETTINGS) {
   const { tier1Threshold, tier2Threshold } = { ...DEFAULT_SETTINGS, ...settings }
-  if (totalGoals >= tier2Threshold) return 3
-  if (totalGoals >= tier1Threshold) return 2
+  if (totalGoals > tier2Threshold) return 3
+  if (totalGoals > tier1Threshold) return 2
   return 1
 }
 export function getTierRate(totalGoals, settings = DEFAULT_SETTINGS) {
   const { tier1Rate, tier2Rate, tier3Rate, tier1Threshold, tier2Threshold } = { ...DEFAULT_SETTINGS, ...settings }
-  if (totalGoals >= tier2Threshold) return tier3Rate
-  if (totalGoals >= tier1Threshold) return tier2Rate
+  if (totalGoals > tier2Threshold) return tier3Rate
+  if (totalGoals > tier1Threshold) return tier2Rate
   return tier1Rate
 }
 export function isTopScorer(player, players, settings = DEFAULT_SETTINGS) {

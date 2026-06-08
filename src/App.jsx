@@ -77,7 +77,10 @@ function reconcileModules(modules) {
       if (merged.y == null) merged.y = r.y ?? (40 + Math.random() * 20)
       return merged
     })
-    return { ...m, players }
+    // Migration : ancien taux de base 9.99€ → 10€
+    let settings = m.settings
+    if (settings && settings.tier1Rate === 9.99) settings = { ...settings, tier1Rate: 10 }
+    return { ...m, players, settings }
   })
 }
 
