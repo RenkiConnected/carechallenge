@@ -412,7 +412,8 @@ export default function App() {
   }, [])
 
   // Valide TOUS les pronostics d'un coup en comparant au résultat officiel.
-  // Gagnants → ballon à 20€ ajouté en 1ère Partie · perdants → rien.
+  // Si le pronostic est BON → toutes les lignes du jour de ce joueur passent à 20€
+  // (les lignes sont déjà comptées en Préparation Mondiale via le bouton +).
   const validatePronos = useCallback((moduleId) => {
     const { modules: mods, coaches: cs } = stateRef.current
     const mod = mods.find(m => m.id === moduleId)
@@ -422,22 +423,12 @@ export default function App() {
     const predicted = p => p.franceScore !== '' && p.franceScore != null && p.irelandScore !== '' && p.irelandScore != null
     const isWin = p => predicted(p) && Number(p.franceScore) === Number(rf) && Number(p.irelandScore) === Number(ri)
     const status = p => predicted(p) ? (isWin(p) ? 'won' : 'lost') : ''
-    const newVP = {}, delta = {}
-    ;[...(mod.players || []), ...cs].forEach(p => { const nv = isWin(p) ? 1 : 0; newVP[p.id] = nv; delta[p.id] = nv - (p.validatedPronos || 0) })
-    const canonId = (mods.find(m => (m.type || 'forfaits') === 'forfaits') || mods[0])?.id
-    setModules(prev => prev.map(m => {
-      if (m.id === moduleId)
-        return { ...m, validatedRound: (m.validatedRound || 0) + 1,
-          players: m.players.map(p => ({ ...p, validatedPronos: newVP[p.id] ?? (p.validatedPronos||0), pronos: predicted(p)?1:(p.pronos||0), pronoStatus: status(p) })) }
-      if (m.id === canonId)
-        return { ...m, players: m.players.map(p => delta[p.id] ? { ...p, goals: Math.max(0, (p.goals||0) + delta[p.id]) } : p) }
-      return m
-    }))
-    setCoaches(prev => prev.map(c => ({ ...c,
-      validatedPronos: newVP[c.id] ?? (c.validatedPronos||0),
-      pronos: predicted(c) ? 1 : (c.pronos||0),
-      pronoStatus: status(c),
-      goals: delta[c.id] ? Math.max(0, (c.goals||0) + delta[c.id]) : (c.goals||0) })))
+    const newVP = p => isWin(p) ? (p.pronos || 0) : 0   // toutes les lignes du jour à 20€ si bon prono
+    setModules(prev => prev.map(m => m.id === moduleId
+      ? { ...m, validatedRound: (m.validatedRound || 0) + 1,
+          players: m.players.map(p => ({ ...p, validatedPronos: newVP(p), pronoStatus: status(p) })) }
+      : m))
+    setCoaches(prev => prev.map(c => ({ ...c, validatedPronos: newVP(c), pronoStatus: status(c) })))
   }, [])
 
   // ── Gestion modules ───────────────────────────────────────────────────────
@@ -605,7 +596,7 @@ export default function App() {
       <main className="app-main">
         {tab === 'module' && (
           isProno
-            ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} />
+            ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
             : <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} />
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}

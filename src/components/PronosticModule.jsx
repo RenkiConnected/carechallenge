@@ -21,9 +21,10 @@ function PredictionPoll({ player, onUpdate }) {
   )
 }
 
-function PlayerPronoCard({ player, onUpdate }) {
+function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall }) {
   const won = player.pronoStatus === 'won'
   const lost = player.pronoStatus === 'lost'
+  const lines = player.pronos || 0
   return (
     <div className={`prono-card ${won ? 'prono-card-won prono-winner-anim' : ''} ${lost ? 'prono-card-lost' : ''}`}>
       <div className="prono-card-avatar-row">
@@ -35,18 +36,31 @@ function PlayerPronoCard({ player, onUpdate }) {
         <div className="prono-card-info">
           <div className="prono-card-name">{player.name}</div>
           {player.isCoach && <div className="prono-card-role">{player.role}</div>}
-          {won && <div className="prono-card-earnings">+{PRONO_BONUS}€</div>}
+          {won && lines > 0 && <div className="prono-card-earnings">+{lines * PRONO_BONUS}€</div>}
         </div>
       </div>
       <PredictionPoll player={player} onUpdate={onUpdate} />
-      {won && <div className="prono-won-label">🎉 BON PRONOSTIC · <strong>+{PRONO_BONUS}€</strong></div>}
-      {lost && <div className="prono-lost-label">❌ Pronostic raté</div>}
+
+      {/* Lignes du jour : comptent en Préparation Mondiale ; 20€ chacune si bon pronostic */}
+      <div className="prono-balls-section">
+        <div className="prono-balls-label">Lignes du jour{won && lines > 0 ? ' · payées 20€ 🎉' : ''}</div>
+        <div className="prono-balls-row">
+          {Array.from({ length: lines }, (_, i) => (
+            <span key={i} className={`prono-ball ${won ? 'prono-ball-won' : 'prono-ball-pending'}`}>⚽</span>
+          ))}
+          <button className="add-prono-ball" onClick={() => onAddBall(player.id)} title="Ajouter une ligne du jour (+1 forfait en Préparation Mondiale)">+</button>
+          {lines > 0 && <button className="rem-prono-ball" onClick={() => onRemoveBall(player.id)} title="Retirer une ligne">−</button>}
+        </div>
+      </div>
+
+      {won && <div className="prono-won-label">🎉 BON PRONOSTIC · {lines} ligne{lines>1?'s':''} × 20€ = <strong>+{lines * PRONO_BONUS}€</strong></div>}
+      {lost && <div className="prono-lost-label">❌ Pronostic raté · lignes au tarif normal</div>}
       {!won && !lost && hasScore(player) && <div className="pred-locked">🔒 Pronostic enregistré</div>}
     </div>
   )
 }
 
-export default function PronosticModule({ module, players, coaches, dashAuth, onUpdatePerson, onSetResult, onValidateAll }) {
+export default function PronosticModule({ module, players, coaches, dashAuth, onUpdatePerson, onSetResult, onValidateAll, onAddBall, onRemoveBall }) {
   const allPeople = [...players, ...coaches]
   const result = module?.result || {}
   const resultSet = result.france !== '' && result.france != null && result.ireland !== '' && result.ireland != null
@@ -121,7 +135,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, on
 
       <div className="prono-grid">
         {allPeople.map(player => (
-          <PlayerPronoCard key={player.id} player={player} onUpdate={onUpdatePerson} />
+          <PlayerPronoCard key={player.id} player={player} onUpdate={onUpdatePerson} onAddBall={onAddBall} onRemoveBall={onRemoveBall} />
         ))}
       </div>
 
