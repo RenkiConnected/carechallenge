@@ -107,7 +107,7 @@ export default function Dashboard({
   auth, onAuth,
   onAddPlayer, onRemovePlayer, onUpdatePerson, onAddGoal, onRemoveGoal,
   onResetScores, onResetPositions, onUpdateSettings,
-  onAddModule, onRenameModule, onRemoveModule,
+  onAddModule, onAddPronoModule, onRenameModule, onRemoveModule,
   currentTier, tierRate, fbStatus,
 }) {
   const [pw, setPw] = useState('')
@@ -203,6 +203,7 @@ export default function Dashboard({
         ))}
         <div className="btn-row">
           <button className="btn-primary" onClick={onAddModule}>+ Ajouter une partie</button>
+          <button className="btn-primary" style={{ background:"linear-gradient(135deg,#7a4a00,#ff9800)", color:"#fff" }} onClick={onAddPronoModule}>+ Module Pronostic</button>
         </div>
       </div>
 
