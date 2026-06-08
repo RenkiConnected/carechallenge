@@ -194,6 +194,7 @@ export default function Dashboard({
   onAddModule, onAddPronoModule, onRenameModule, onRemoveModule,
   currentTier, tierRate, fbStatus, fbError,
   validatedById = {},
+  onExport, onImport,
 }) {
   const [pw, setPw]           = useState('')
   const [pwErr, setPwErr]     = useState(false)
@@ -320,6 +321,34 @@ export default function Dashboard({
         ))}
         <div className="btn-row">
           <button type="button" className="btn-primary" onClick={onAddPlayer}>+ Ajouter un joueur</button>
+        </div>
+      </div>
+
+      {/* Sauvegarde / Restauration */}
+      <div className="dash-section">
+        <div className="dash-section-title">💾 Sauvegarde des données</div>
+        <div style={{ fontFamily:"'Barlow',sans-serif", fontSize:'.78rem', color:'rgba(240,244,255,.6)', lineHeight:1.6, marginBottom:10 }}>
+          Télécharge un fichier de sauvegarde (joueurs, scores, pronostics). Garde-le en lieu sûr : tu pourras tout restaurer à l'identique en cas de problème.
+        </div>
+        <div className="btn-row">
+          <button type="button" className="btn-primary" onClick={() => onExport && onExport()}>⬇️ Télécharger la sauvegarde</button>
+          <label className="btn-primary" style={{ background:'linear-gradient(135deg,#0a5,#2ecc71)', color:'#fff', cursor:'pointer' }}>
+            ⬆️ Restaurer une sauvegarde
+            <input type="file" accept="application/json,.json" style={{ display:'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0]; if (!f) return
+                const r = new FileReader()
+                r.onload = () => {
+                  try {
+                    const obj = JSON.parse(String(r.result))
+                    const ok = onImport && onImport(obj)
+                    alert(ok ? '✅ Sauvegarde restaurée !' : '❌ Fichier invalide.')
+                  } catch { alert('❌ Fichier illisible.') }
+                  e.target.value = ''
+                }
+                r.readAsText(f)
+              }} />
+          </label>
         </div>
       </div>
 

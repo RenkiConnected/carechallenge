@@ -106,14 +106,53 @@ export default function App() {
   // Horodatage de la dernière MODIFICATION LOCALE non encore confirmée par le serveur.
   // Tant qu'un snapshot entrant est plus ancien que ça, on NE l'applique PAS (sinon il
   // écraserait un ajout/suppression qu'on vient de faire et qui n'est pas encore écrit).
-  const lastLocalEdit = useRef(0)
+  const lastLocalEdit = useRef(saved?.updatedAt || 0)
   // Quand on applique un état distant, on ne veut pas le ré-écrire immédiatement.
   const applyingRemote = useRef(false)
   // Date du dernier état accepté (local ou distant) — pour comparer les snapshots.
-  const lastAcceptedAt = useRef(0)
+  const lastAcceptedAt = useRef(saved?.updatedAt || 0)
   // Tant qu'on n'a pas reçu l'état du serveur, on N'ÉCRIT PAS sur Firebase
   // (sinon l'état par défaut écraserait les vraies données partagées).
   const hydrated = useRef(false)
+  const savedTs = saved?.updatedAt || 0
+  // Snapshot de l'état courant (pour pousser/réparer le serveur)
+  const stateRef = useRef({ modules, coaches, activeMod })
+  useEffect(() => { stateRef.current = { modules, coaches, activeMod } }, [modules, coaches, activeMod])
+
+  // Écrit immédiatement l'état courant sur Firebase (réparation / restauration), avec horodatage neuf
+  const forcePush = useCallback(() => {
+    const { modules: m, coaches: c, activeMod: am } = stateRef.current
+    const now = Date.now()
+    lastLocalEdit.current = now
+    lastAcceptedAt.current = now
+    const data = { modules: m, coaches: c, activeMod: am, updatedAt: now, clientId: clientId.current }
+    saveLocal(data)
+    if (isConfigured && db) {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      setDoc(doc(db, 'challenge', 'state'), data).catch(e => { setFbError(e.code || ''); setFbStatus('offline') })
+    }
+  }, [])
+
+  // Sauvegarde : télécharge un fichier JSON de toutes les données
+  const exportData = useCallback(() => {
+    const { modules: m, coaches: c, activeMod: am } = stateRef.current
+    const blob = new Blob([JSON.stringify({ modules: m, coaches: c, activeMod: am, updatedAt: Date.now() }, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `care-challenges-sauvegarde-${new Date().toISOString().slice(0,10)}.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }, [])
+
+  // Restauration : recharge depuis un objet importé puis pousse sur le serveur (gagne sur tout)
+  const importData = useCallback((obj) => {
+    if (!obj || !Array.isArray(obj.modules)) return false
+    setModules(reconcileModules(obj.modules))
+    if (obj.coaches) setCoaches(obj.coaches)
+    if (obj.activeMod) setActiveMod(obj.activeMod)
+    setTimeout(() => forcePush(), 80) // horodatage neuf → restauration prioritaire partout
+    return true
+  }, [forcePush])
 
   // ── Firebase ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -124,10 +163,14 @@ export default function App() {
       snap => {
         setFbStatus('ok')
         clearTimeout(fallback)
-        if (!snap.exists()) { hydrated.current = true; return }
+        if (!snap.exists()) {
+          hydrated.current = true
+          if (savedTs > 0) forcePush() // serveur vide → on y restaure nos données locales
+          return
+        }
         const d = snap.data()
 
-        // 1) C'est notre propre écriture qui revient → on a déjà cet état, on ignore.
+        // 1) Notre propre écriture qui revient → on ignore.
         if (d.clientId && d.clientId === clientId.current) {
           lastAcceptedAt.current = d.updatedAt || lastAcceptedAt.current
           if ((d.updatedAt || 0) >= lastLocalEdit.current) lastLocalEdit.current = 0
@@ -135,14 +178,17 @@ export default function App() {
           return
         }
 
-        // 2) Snapshot plus ancien que nos modifs locales non écrites → on l'ignore
         const ts = d.updatedAt || 0
-        if (lastLocalEdit.current && ts < lastLocalEdit.current) { hydrated.current = true; return }
-        if (ts && ts <= lastAcceptedAt.current) { hydrated.current = true; return }
+        // 2) Notre état LOCAL est plus récent (ou égal) → on garde le local et on RÉPARE le serveur.
+        if (ts <= lastAcceptedAt.current) {
+          hydrated.current = true
+          forcePush()
+          return
+        }
 
-        // 3) État distant légitime (autre client, plus récent) → on l'applique.
+        // 3) Le serveur est plus récent → on l'applique.
         applyingRemote.current = true
-        if (saveTimer.current) clearTimeout(saveTimer.current) // annule une écriture locale en attente
+        if (saveTimer.current) clearTimeout(saveTimer.current)
         if (d.modules)   setModules(reconcileModules(d.modules))
         if (d.coaches)   setCoaches(d.coaches)
         if (d.activeMod) setActiveMod(d.activeMod)
@@ -484,6 +530,7 @@ export default function App() {
             onRenameModule={renameModule} onRemoveModule={removeModule}
             currentTier={currentTier} tierRate={tierRate} fbStatus={fbStatus} fbError={fbError}
             validatedById={validatedById}
+            onExport={exportData} onImport={importData}
           />
         )}
       </main>
