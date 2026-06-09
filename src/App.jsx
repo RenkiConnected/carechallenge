@@ -104,16 +104,21 @@ export default function App() {
   const [activeMod,  setActiveMod]  = useState(() => saved?.activeMod || 1)
   const [tab,        setTab]        = useState('module')
   const [selectedId, setSelectedId] = useState(null)
+  const selectedIdRef = useRef(null)
+  useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
   const [dashAuth,   setDashAuth]   = useState(false)
   const [fbStatus,   setFbStatus]   = useState('connecting')
   const [fbError,    setFbError]    = useState('')
-  // Synchro temps réel : si OFF, on ne voit PAS en direct ce que font les autres
-  // (les données restent partagées : enregistrées et rechargées à l'ouverture).
-  const [liveSync,   setLiveSync]   = useState(() => localStorage.getItem('fc2026_live') === 'on')
+  // Synchro temps réel : ACTIVÉE par défaut pour que les points de chacun s'additionnent
+  // (sinon le dernier qui enregistre écrase les points des autres). La navigation reste
+  // locale à chaque personne, donc la synchro ne fait plus "sauter" l'écran.
+  const [liveSync,   setLiveSync]   = useState(() => localStorage.getItem('fc2026_live') !== 'off')
   const liveSyncRef = useRef(liveSync)
   useEffect(() => { liveSyncRef.current = liveSync; try { localStorage.setItem('fc2026_live', liveSync ? 'on' : 'off') } catch {} }, [liveSync])
   const [goalBurst,  setGoalBurst]  = useState(null)
   const [gotRemote,  setGotRemote]  = useState(false) // vraies données reçues du serveur
+  const [warnLocal,  setWarnLocal]  = useState(true)   // afficher l'avertissement mode local
+  const [showRules,  setShowRules]  = useState(false)
 
   // ── REFS (évite les stale closures dans les callbacks) ─────────────────────
   const activeModRef = useRef(activeMod)
@@ -219,11 +224,15 @@ export default function App() {
         //    Si la synchro temps réel est désactivée, on n'applique PAS les mises à jour
         //    en direct après le 1er chargement (on garde notre écran stable).
         if (hydrated.current && !liveSyncRef.current) { return }
+        // Si une fiche joueur est ouverte (on est en train d'ajouter des points),
+        // on ne ré-applique pas une mise à jour distante pour ne pas faire buguer les clics.
+        if (hydrated.current && selectedIdRef.current != null) { return }
         applyingRemote.current = true
         if (saveTimer.current) clearTimeout(saveTimer.current)
         if (d.modules)   setModules(reconcileModules(d.modules))
         if (d.coaches)   setCoaches(d.coaches)
-        if (d.activeMod) setActiveMod(d.activeMod)
+        // La navigation (partie/onglet active) est LOCALE à chaque personne :
+        // on n'applique JAMAIS l'activeMod d'un autre utilisateur (sinon l'écran saute).
         setGotRemote(true)
         lastAcceptedAt.current = ts
         hydrated.current = true
@@ -505,6 +514,35 @@ export default function App() {
 
   return (
     <div className="app">
+      {fbStatus === 'offline' && warnLocal && (
+        <div className="local-warn-banner">
+          <span>🔴 <strong>Mode LOCAL</strong> — les données ne sont PAS partagées ni sauvegardées en ligne (risque de perte si on vide le cache). Pour activer la sauvegarde permanente et le partage entre appareils, applique les règles Firestore.</span>
+          <button className="local-warn-btn" onClick={() => setShowRules(true)}>Voir les règles</button>
+          <button className="local-warn-close" onClick={() => setWarnLocal(false)}>✕</button>
+        </div>
+      )}
+      {showRules && (
+        <div className="rules-modal-overlay" onClick={() => setShowRules(false)}>
+          <div className="rules-modal" onClick={e => e.stopPropagation()}>
+            <h3>Activer la sauvegarde en ligne (Firestore)</h3>
+            <ol>
+              <li>Va sur <b>console.firebase.google.com</b> → projet <b>carechallenge-24abd</b>.</li>
+              <li>Menu <b>Firestore Database</b> → onglet <b>Règles</b>.</li>
+              <li>Colle ces règles, puis clique <b>Publier</b> :</li>
+            </ol>
+            <pre className="rules-code">{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /challenge/{doc} {
+      allow read, write: if true;
+    }
+  }
+}`}</pre>
+            <p className="rules-note">Ces règles autorisent la lecture/écriture du challenge. Une fois publiées, recharge l'appli : l'indicateur passera à « EN LIGNE » (vert) et tout sera sauvegardé et partagé.</p>
+            <button className="rules-modal-close" onClick={() => setShowRules(false)}>Fermer</button>
+          </div>
+        </div>
+      )}
       {freshStart.current && !gotRemote && fbStatus === 'offline' && (
         <div className="recovery-banner">
           <span>⚠️ Aucune donnée trouvée sur cet appareil. Si tu avais déjà une équipe, restaure ta sauvegarde&nbsp;:</span>
@@ -539,9 +577,9 @@ export default function App() {
                 <span className="stat-label">VALIDÉS</span>
               </div>
             )}
-            <div className="fb-dot" title={fbStatus==='ok'?'Firebase connecté':fbStatus==='offline'?'Mode local':'Connexion...'}>
-              <span style={{ color:fbStatus==='ok'?'#2ecc71':fbStatus==='offline'?'#e67e22':'#ffd700', fontSize:'1rem' }}>●</span>
-              <span className="fb-dot-label">{fbStatus==='ok'?'Live':fbStatus==='offline'?'Local':'...'}</span>
+            <div className="fb-dot" title={fbStatus==='ok'?'Données sauvegardées en ligne et partagées':fbStatus==='offline'?'Mode local : données NON partagées/sauvegardées en ligne':'Connexion...'}>
+              <span style={{ color:fbStatus==='ok'?'#2ecc71':fbStatus==='offline'?'#e74c3c':'#ffd700', fontSize:'1rem' }}>●</span>
+              <span className="fb-dot-label">{fbStatus==='ok'?'EN LIGNE':fbStatus==='offline'?'LOCAL ⚠':'...'}</span>
             </div>
           </div>
         </div>

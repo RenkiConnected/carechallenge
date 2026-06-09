@@ -352,10 +352,10 @@ export default function Dashboard({
           </label>
         </div>
         <div style={{ marginTop:14, paddingTop:12, borderTop:'1px solid var(--border)' }}>
-          <Toggle label="🔴 Synchronisation temps réel"
+          <Toggle label="🔄 Synchronisation temps réel"
             desc={liveSync
-              ? 'Activée : tu vois en direct les changements faits sur les autres appareils.'
-              : 'Désactivée : les données restent partagées (sauvegardées et rechargées à l\'ouverture), mais ton écran ne bouge pas en direct quand quelqu\'un d\'autre modifie.'}
+              ? 'Activée (recommandé) : les points de tout le monde s\'additionnent en direct. Ta navigation reste indépendante de celle des autres.'
+              : 'Désactivée : tu ne vois plus les changements des autres en direct — à n\'utiliser qu\'en solo, car en multi-joueurs le dernier enregistrement peut écraser les points des autres.'}
             checked={!!liveSync} onChange={v => onToggleLiveSync && onToggleLiveSync(v)} />
         </div>
       </div>

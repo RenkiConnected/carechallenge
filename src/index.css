@@ -611,9 +611,9 @@ img, svg, canvas { max-width:100%; }
    La page ne défile pas (en-tête fixe) ; seule la zone du terrain défile
    pour révéler tous les joueurs, bien espacés et lisibles. */
 .pitch-wrapper { overflow-y:auto !important; overflow-x:hidden; -webkit-overflow-scrolling:touch; }
-.pitch-container { min-height:900px; }
+.pitch-container { min-height:1180px; padding-bottom:40px; }
 @media (max-width:767px) {
-  .pitch-container { min-height:1320px; }
+  .pitch-container { min-height:1380px; padding-bottom:60px; }
   .player-name-tag { max-width:110px; font-size:.8rem; }
   .player-circle { width:clamp(46px,12vw,58px); height:clamp(46px,12vw,58px); }
 }
@@ -622,3 +622,15 @@ img, svg, canvas { max-width:100%; }
 .recovery-banner { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:12px; background:linear-gradient(135deg,#7a1f1f,#c0392b); color:#fff; font-family:var(--font-body); font-size:.86rem; padding:10px 16px; text-align:center; z-index:300; }
 .recovery-btn { background:#fff; color:#c0392b; font-family:var(--font-condensed); font-weight:800; letter-spacing:.5px; padding:8px 16px; border-radius:8px; cursor:pointer; white-space:nowrap; }
 .recovery-btn:hover { background:#ffe; }
+
+/* ── Avertissement mode local + modale règles ── */
+.local-warn-banner { display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:center; background:linear-gradient(135deg,#6e1414,#a83232); color:#fff; font-family:var(--font-body); font-size:.82rem; padding:8px 14px; text-align:center; }
+.local-warn-btn { background:#ffd700; color:#1a1a1a; border:none; font-family:var(--font-condensed); font-weight:800; padding:6px 14px; border-radius:7px; cursor:pointer; white-space:nowrap; }
+.local-warn-close { background:transparent; border:none; color:#fff; font-size:1rem; cursor:pointer; opacity:.8; }
+.rules-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:400; display:flex; align-items:center; justify-content:center; padding:16px; }
+.rules-modal { background:#0f1c33; border:1px solid rgba(255,215,0,.3); border-radius:14px; padding:22px; max-width:560px; width:100%; color:var(--text); max-height:90vh; overflow-y:auto; }
+.rules-modal h3 { font-family:var(--font-display); color:var(--gold); letter-spacing:1px; margin-bottom:12px; font-size:1.4rem; }
+.rules-modal ol { margin:0 0 12px 18px; font-size:.9rem; line-height:1.7; }
+.rules-code { background:#05101f; border:1px solid var(--border); border-radius:8px; padding:14px; font-family:monospace; font-size:.82rem; color:#9fe6b0; white-space:pre; overflow-x:auto; }
+.rules-note { font-size:.82rem; color:var(--text-dim); margin:12px 0; line-height:1.6; }
+.rules-modal-close { background:var(--gold); color:#1a1a1a; border:none; font-family:var(--font-condensed); font-weight:800; padding:10px 20px; border-radius:8px; cursor:pointer; width:100%; }
