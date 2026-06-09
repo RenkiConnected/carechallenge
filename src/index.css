@@ -607,17 +607,13 @@ img, svg, canvas { max-width:100%; }
 .fireworks-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:5; opacity:.6; mix-blend-mode:screen; }
 .fireworks-fixed { position:fixed; inset:0; z-index:60; opacity:.85; }
 
-/* ── Terrain lisible et défilable (voir tous les joueurs) ── */
-/* On retire le verrouillage à la hauteur de l'écran : la page peut défiler
-   verticalement et le terrain est assez grand pour espacer tous les joueurs. */
-.app-main { overflow:visible; }
-.pitch-layout { height:auto !important; min-height:calc(100dvh - 150px); overflow:visible !important; }
-.pitch-wrapper { overflow:visible !important; min-height:0; }
-.pitch-container { flex:1 0 auto; min-height:840px; overflow:hidden; }
+/* ── Terrain défilable EN INTERNE (en-tête et onglets intacts) ──
+   La page ne défile pas (en-tête fixe) ; seule la zone du terrain défile
+   pour révéler tous les joueurs, bien espacés et lisibles. */
+.pitch-wrapper { overflow-y:auto !important; overflow-x:hidden; -webkit-overflow-scrolling:touch; }
+.pitch-container { min-height:900px; }
 @media (max-width:767px) {
-  .pitch-wrapper { flex-direction:column; }
-  /* terrain vertical haut : tous les joueurs visibles en faisant défiler */
-  .pitch-container { min-height:1180px; }
+  .pitch-container { min-height:1320px; }
   .player-name-tag { max-width:110px; font-size:.8rem; }
   .player-circle { width:clamp(46px,12vw,58px); height:clamp(46px,12vw,58px); }
 }

@@ -206,13 +206,16 @@ function PronoModuleView({ mod, coaches }) {
 
 // ── Composant principal ───────────────────────────────────────────────────────
 export default function Leaderboard({ modules, coaches, activeModId }) {
-  const [view, setView] = useState(activeModId || 'combined')
+  // Le classement d'un module pronostic = celui de la Préparation Mondiale (1ère partie forfaits).
+  const forfaitMods = modules.filter(m => (m.type || 'forfaits') === 'forfaits')
+  const canonId = forfaitMods[0]?.id
+  const activeIsForfait = modules.some(m => m.id === activeModId && (m.type || 'forfaits') === 'forfaits')
+  const [view, setView] = useState(activeIsForfait ? activeModId : (canonId || 'combined'))
   const [expandedId, setExpandedId] = useState(null)
 
   const validatedById = {}
   modules.forEach(m => { if (m.type==='pronostic') (m.players||[]).forEach(p => { validatedById[p.id]=(validatedById[p.id]||0)+(p.validatedPronos||0) }) })
   coaches.forEach(c => { if (c.validatedPronos) validatedById[c.id]=(validatedById[c.id]||0)+(c.validatedPronos||0) })
-  const canonId = (modules.find(m => (m.type||'forfaits')==='forfaits')||modules[0])?.id
   const combined = buildCombinedRanking(modules, coaches)
   const grandTotal = combined.reduce((s, p) => s + p.totalEarnings, 0)
   const totalForfaits = combined.reduce((s, p) => s + p.totalGoals, 0)
@@ -230,9 +233,9 @@ export default function Leaderboard({ modules, coaches, activeModId }) {
         <button className={`lvt-btn ${view==='combined'?'active':''}`} onClick={() => setView('combined')}>
           📊 Combiné TOTAL
         </button>
-        {modules.map(m => (
+        {forfaitMods.map(m => (
           <button key={m.id} className={`lvt-btn ${view===m.id?'active':''}`} onClick={() => setView(m.id)} style={{ flexShrink:0 }}>
-            {m.type==='pronostic'?'🎯':'⚽'} {m.name}
+            ⚽ {m.name}
           </button>
         ))}
       </div>
