@@ -20,15 +20,18 @@ export default function Fireworks({ active, fixed = false, intense = false, conf
       let w, h
       if (fixed) { w = window.innerWidth; h = window.innerHeight }
       else { const r = canvas.parentElement.getBoundingClientRect(); w = r.width; h = r.height }
+      // si la taille n'est pas encore connue (mise en page flex pas finalisée), on réessaie
+      if (!w || !h) { requestAnimationFrame(resize); return }
       W = w; H = h
       canvas.width = W * dpr; canvas.height = H * dpr
       canvas.style.width = W + 'px'; canvas.style.height = H + 'px'
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
     resize()
+    requestAnimationFrame(resize) // re-mesure après le 1er layout
     const ro = new ResizeObserver(resize)
     if (!fixed && canvas.parentElement) ro.observe(canvas.parentElement)
-    if (fixed) window.addEventListener('resize', resize)
+    window.addEventListener('resize', resize)
 
     const particles = []
     const confetti = []
@@ -109,7 +112,7 @@ export default function Fireworks({ active, fixed = false, intense = false, conf
     }
     rafRef.current = requestAnimationFrame(tick)
 
-    return () => { cancelAnimationFrame(rafRef.current); ro.disconnect(); if (fixed) window.removeEventListener('resize', resize) }
+    return () => { cancelAnimationFrame(rafRef.current); ro.disconnect(); window.removeEventListener('resize', resize) }
   }, [active, fixed, intense, confettiOn])
 
   if (!active) return null
