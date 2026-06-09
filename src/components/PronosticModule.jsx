@@ -75,7 +75,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, on
   return (
     <div className="prono-module">
       {/* Feu d'artifice plein écran si au moins un bon pronostic */}
-      <Fireworks active={winners.length > 0} fixed intense />
+      <Fireworks active={winners.length > 0} fixed intense confetti />
       <div className="prono-module-header">
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <span style={{ fontSize:'2rem' }}>🎯</span>

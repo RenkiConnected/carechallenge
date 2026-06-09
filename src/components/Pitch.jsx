@@ -167,8 +167,9 @@ export default function Pitch({ players, coaches, selectedId, onSelect, onUpdate
         </div>
 
         {/* ── Pitch ── */}
-        <div className="pitch-container" ref={pitchRef} onClick={() => onSelect(null)}>
+        <div className="pitch-container" onClick={() => onSelect(null)}>
           {isMobile ? <PitchSVGVertical /> : <PitchSVG />}
+          <div className="pitch-players" ref={pitchRef}>
           {players.map(player => {
             const sel = selectedId === player.id
             const ht  = player.goals >= 3
@@ -190,6 +191,7 @@ export default function Pitch({ players, coaches, selectedId, onSelect, onUpdate
               </div>
             )
           })}
+          </div>
         </div>
       </div>
 

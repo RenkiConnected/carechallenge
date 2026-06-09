@@ -656,7 +656,10 @@ service cloud.firestore {
           isProno
             ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
             : <div className="module-stage">
-                <Fireworks active={totalGoals >= objective} />
+                <Fireworks active={totalGoals >= objective} confetti />
+                {totalGoals >= objective && (
+                  <div className="objective-badge">🎉 Objectif atteint · {objective} {unitU.toLowerCase()}</div>
+                )}
                 <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} />
               </div>
         )}

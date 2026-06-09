@@ -607,13 +607,25 @@ img, svg, canvas { max-width:100%; }
 .fireworks-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:5; opacity:.6; mix-blend-mode:screen; }
 .fireworks-fixed { position:fixed; inset:0; z-index:60; opacity:.85; }
 
-/* ── Terrain défilable EN INTERNE (en-tête et onglets intacts) ──
-   La page ne défile pas (en-tête fixe) ; seule la zone du terrain défile
-   pour révéler tous les joueurs, bien espacés et lisibles. */
-.pitch-wrapper { overflow-y:auto !important; overflow-x:hidden; -webkit-overflow-scrolling:touch; }
-.pitch-container { min-height:1180px; padding-bottom:40px; }
+/* ── Terrain : zone des joueurs (avec marge pour ne rien couper) ── */
+.pitch-players { position:absolute; inset:0; }
+
+/* PC : tout visible d'un coup, AUCUN défilement (le terrain remplit l'écran) */
+@media (min-width:768px) {
+  .app { height:100vh; overflow:hidden; }
+  .app-main { flex:1; min-height:0; overflow:hidden; }
+  .pitch-layout { flex:1; height:auto !important; min-height:0 !important; overflow:hidden !important; }
+  .pitch-wrapper { flex:1; min-height:0; overflow:hidden !important; }
+  .pitch-container { flex:1; min-height:0 !important; overflow:hidden; padding-bottom:0 !important; }
+  /* marge intérieure : aucun joueur ni étiquette n'est coupé en haut/bas/côtés */
+  .pitch-players { inset:5% 3% 8% 3%; }
+}
+
+/* Mobile : terrain haut et défilable (on fait défiler pour voir tous les joueurs) */
 @media (max-width:767px) {
+  .pitch-wrapper { overflow-y:auto !important; overflow-x:hidden; -webkit-overflow-scrolling:touch; }
   .pitch-container { min-height:1380px; padding-bottom:60px; }
+  .pitch-players { inset:1% 2% 3% 2%; }
   .player-name-tag { max-width:110px; font-size:.8rem; }
   .player-circle { width:clamp(46px,12vw,58px); height:clamp(46px,12vw,58px); }
 }
@@ -634,3 +646,11 @@ img, svg, canvas { max-width:100%; }
 .rules-code { background:#05101f; border:1px solid var(--border); border-radius:8px; padding:14px; font-family:monospace; font-size:.82rem; color:#9fe6b0; white-space:pre; overflow-x:auto; }
 .rules-note { font-size:.82rem; color:var(--text-dim); margin:12px 0; line-height:1.6; }
 .rules-modal-close { background:var(--gold); color:#1a1a1a; border:none; font-family:var(--font-condensed); font-weight:800; padding:10px 20px; border-radius:8px; cursor:pointer; width:100%; }
+
+/* ── Badge discret "objectif atteint" ── */
+.objective-badge { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:8; pointer-events:none;
+  background:rgba(10,20,40,.72); border:1px solid rgba(255,215,0,.55); color:var(--gold);
+  font-family:var(--font-condensed); font-weight:800; letter-spacing:1px; font-size:.82rem; text-transform:uppercase;
+  padding:6px 14px; border-radius:20px; backdrop-filter:blur(6px); box-shadow:0 2px 10px rgba(0,0,0,.35);
+  animation:obj-badge-in .5s ease both; }
+@keyframes obj-badge-in { from{opacity:0; transform:translate(-50%,-8px)} to{opacity:1; transform:translate(-50%,0)} }
