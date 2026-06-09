@@ -121,9 +121,14 @@ body {
 .tier3 .tier-fill { background:linear-gradient(90deg,#d97706,var(--gold)); }
 
 /* ───── TICKER ───── */
-.ticker-wrap { background:rgba(255,215,0,.08); border-top:1px solid rgba(255,215,0,.15); overflow:hidden; height:26px; display:flex; align-items:center; }
-.ticker-content { display:inline-flex; gap:60px; white-space:nowrap; animation:ticker-scroll 70s linear infinite; padding-left:60px; will-change:transform; }
-.ticker-content span { font-family:var(--font-condensed); font-size:clamp(.72rem,1.8vw,.85rem); font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--gold); }
+.ticker-wrap { background:rgba(255,215,0,.08); border-top:1px solid rgba(255,215,0,.15); overflow:hidden; height:30px; display:flex; align-items:center; }
+.ticker-content { display:inline-flex; white-space:nowrap; animation:ticker-scroll 45s linear infinite; will-change:transform; }
+.ticker-content span { flex:0 0 auto; padding:0 30px; line-height:1; font-family:var(--font-condensed); font-size:clamp(.72rem,1.8vw,.85rem); font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--gold); }
+@media (max-width:767px) {
+  .ticker-wrap { height:30px; }
+  .ticker-content { animation-duration:28s; }
+  .ticker-content span { font-size:.72rem; letter-spacing:1px; padding:0 22px; }
+}
 
 /* ───── NAV ───── */
 .app-nav { display:flex; background:rgba(0,0,0,.4); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:90; backdrop-filter:blur(12px); }
@@ -398,7 +403,7 @@ input:checked + .toggle-slider::before { transform:translateX(24px); background:
   gap:14px; padding:8px 4px;
   background:linear-gradient(180deg,rgba(5,13,26,.92),rgba(10,22,40,.92));
   border-right:1px solid rgba(255,215,0,.15);
-  position:relative; z-index:10; overflow-y:auto;
+  position:relative; z-index:30; overflow-y:auto;
 }
 .coaches-sidebar-label { font-family:var(--font-condensed); font-size:.55rem; letter-spacing:2px; color:rgba(255,215,0,.4); writing-mode:vertical-rl; transform:rotate(180deg); margin-bottom:4px; }
 
@@ -604,6 +609,7 @@ img, svg, canvas { max-width:100%; }
 
 /* ── Feu d'artifice (overlay non intrusif) ── */
 .module-stage { position:relative; }
+@media (min-width:768px) { .module-stage { flex:1; display:flex; flex-direction:column; min-height:0; } }
 .fireworks-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:5; opacity:.6; mix-blend-mode:screen; }
 .fireworks-fixed { position:fixed; inset:0; z-index:60; opacity:.85; }
 
@@ -654,3 +660,7 @@ img, svg, canvas { max-width:100%; }
   padding:6px 14px; border-radius:20px; backdrop-filter:blur(6px); box-shadow:0 2px 10px rgba(0,0,0,.35);
   animation:obj-badge-in .5s ease both; }
 @keyframes obj-badge-in { from{opacity:0; transform:translate(-50%,-8px)} to{opacity:1; transform:translate(-50%,0)} }
+/* sur mobile, le banc (coachs) est en haut : on place le badge en bas pour ne pas le masquer */
+@media (max-width:767px) {
+  .objective-badge { top:auto; bottom:14px; }
+}
