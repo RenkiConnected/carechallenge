@@ -617,3 +617,8 @@ img, svg, canvas { max-width:100%; }
   .player-name-tag { max-width:110px; font-size:.8rem; }
   .player-circle { width:clamp(46px,12vw,58px); height:clamp(46px,12vw,58px); }
 }
+
+/* ── Bandeau de récupération (aucune donnée locale) ── */
+.recovery-banner { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:12px; background:linear-gradient(135deg,#7a1f1f,#c0392b); color:#fff; font-family:var(--font-body); font-size:.86rem; padding:10px 16px; text-align:center; z-index:300; }
+.recovery-btn { background:#fff; color:#c0392b; font-family:var(--font-condensed); font-weight:800; letter-spacing:.5px; padding:8px 16px; border-radius:8px; cursor:pointer; white-space:nowrap; }
+.recovery-btn:hover { background:#ffe; }

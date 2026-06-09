@@ -98,6 +98,7 @@ function reconcileModules(modules) {
 
 export default function App() {
   const saved = loadLocal()
+  const freshStart = useRef(!saved) // aucun stockage local au lancement
   const [modules,    setModules]    = useState(() => reconcileModules(saved?.modules || [makeModule(1,'1ère Partie'), makePronoModule(2)]))
   const [coaches,    setCoaches]    = useState(() => saved?.coaches  || BASE_COACHES)
   const [activeMod,  setActiveMod]  = useState(() => saved?.activeMod || 1)
@@ -112,6 +113,7 @@ export default function App() {
   const liveSyncRef = useRef(liveSync)
   useEffect(() => { liveSyncRef.current = liveSync; try { localStorage.setItem('fc2026_live', liveSync ? 'on' : 'off') } catch {} }, [liveSync])
   const [goalBurst,  setGoalBurst]  = useState(null)
+  const [gotRemote,  setGotRemote]  = useState(false) // vraies données reçues du serveur
 
   // ── REFS (évite les stale closures dans les callbacks) ─────────────────────
   const activeModRef = useRef(activeMod)
@@ -176,6 +178,7 @@ export default function App() {
     setModules(reconcileModules(mods))
     if (obj.coaches) setCoaches(obj.coaches)
     if (obj.activeMod) setActiveMod(obj.activeMod)
+    setGotRemote(true)
     setTimeout(() => forcePush(), 80) // horodatage neuf → restauration prioritaire partout
     return true
   }, [forcePush])
@@ -221,6 +224,7 @@ export default function App() {
         if (d.modules)   setModules(reconcileModules(d.modules))
         if (d.coaches)   setCoaches(d.coaches)
         if (d.activeMod) setActiveMod(d.activeMod)
+        setGotRemote(true)
         lastAcceptedAt.current = ts
         hydrated.current = true
       },
@@ -501,6 +505,21 @@ export default function App() {
 
   return (
     <div className="app">
+      {freshStart.current && !gotRemote && fbStatus === 'offline' && (
+        <div className="recovery-banner">
+          <span>⚠️ Aucune donnée trouvée sur cet appareil. Si tu avais déjà une équipe, restaure ta sauvegarde&nbsp;:</span>
+          <label className="recovery-btn">
+            ⬆️ Restaurer une sauvegarde
+            <input type="file" accept="application/json,.json" style={{ display:'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0]; if (!f) return
+                const r = new FileReader()
+                r.onload = () => { try { importData(JSON.parse(String(r.result))) ? alert('✅ Données restaurées !') : alert('❌ Fichier invalide.') } catch { alert('❌ Fichier illisible.') } e.target.value='' }
+                r.readAsText(f)
+              }} />
+          </label>
+        </div>
+      )}
       <header className="app-header">
         <div className="header-content">
           <img src="/favicon.png" alt="Logo" className="header-logo-img" />
