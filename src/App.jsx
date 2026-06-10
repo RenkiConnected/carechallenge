@@ -5,6 +5,7 @@ import Fireworks from './components/Fireworks'
 import Leaderboard from './components/Leaderboard'
 import Rules from './components/Rules'
 import Dashboard from './components/Dashboard'
+import WorldCupCountdown, { GROUP_PHASE_TS } from './components/WorldCupCountdown'
 import { getCurrentTier, getTierRate, DEFAULT_SETTINGS } from './utils/bonus'
 import { db, isConfigured, doc, setDoc, onSnapshot } from './firebase'
 
@@ -103,6 +104,8 @@ export default function App() {
   const [coaches,    setCoaches]    = useState(() => saved?.coaches  || BASE_COACHES)
   const [activeMod,  setActiveMod]  = useState(() => saved?.activeMod || 1)
   const [tab,        setTab]        = useState('module')
+  const [cdDismissed, setCdDismissed] = useState(false)
+  const landedRef = useRef(false)
   const [selectedId, setSelectedId] = useState(null)
   const selectedIdRef = useRef(null)
   useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
@@ -123,6 +126,15 @@ export default function App() {
   // ── REFS (évite les stale closures dans les callbacks) ─────────────────────
   const activeModRef = useRef(activeMod)
   useEffect(() => { activeModRef.current = activeMod }, [activeMod])
+
+  // À partir de 21h le 11 juin (1er match), on ouvre DIRECTEMENT la Phase de Poules
+  // au chargement (une seule fois — la navigation reste ensuite libre et locale).
+  useEffect(() => {
+    if (landedRef.current) return
+    if (Date.now() < GROUP_PHASE_TS) { landedRef.current = true; return }
+    const poules = (modules || []).find(m => m.settings && m.settings.phase === 'poules')
+    if (poules) { setActiveMod(poules.id); setTab('module'); landedRef.current = true }
+  }, [modules])
   const saveTimer = useRef(null)
 
   // Identité unique de CE client (pour ignorer nos propres échos Firebase)
@@ -514,6 +526,11 @@ export default function App() {
 
   return (
     <div className="app">
+      <WorldCupCountdown
+        dismissed={cdDismissed}
+        onDismiss={() => setCdDismissed(true)}
+        onExpand={() => setCdDismissed(false)}
+      />
       {fbStatus === 'offline' && warnLocal && (
         <div className="local-warn-banner">
           <span>🔴 <strong>Mode LOCAL</strong> — les données ne sont PAS partagées ni sauvegardées en ligne (risque de perte si on vide le cache). Pour activer la sauvegarde permanente et le partage entre appareils, applique les règles Firestore.</span>
