@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import Fireworks from './Fireworks'
 
 // Cérémonie d'ouverture : 11 juin 2026 à 19h20 (heure locale).
@@ -27,18 +27,30 @@ export default function WorldCupCountdown({ dismissed, onDismiss, onExpand }) {
     return () => clearInterval(t)
   }, [])
 
+  const celebrating = now >= OPENING_TS && now < CELEB_END_TS
+
+  // Quand la célébration démarre (passage de 19h20), on ré-affiche l'écran UNE fois,
+  // même si l'utilisateur était déjà entré dans le challenge.
+  const wasCelebrating = useRef(false)
+  useEffect(() => {
+    if (celebrating && !wasCelebrating.current && onExpand) onExpand()
+    wasCelebrating.current = celebrating
+  }, [celebrating, onExpand])
+
   // Évènement totalement passé (après l'heure de célébration) → plus d'overlay.
   if (now >= CELEB_END_TS) return null
 
-  const celebrating = now >= OPENING_TS
   const diff = Math.max(0, OPENING_TS - now)
   const d = Math.floor(diff / 86400000)
   const h = Math.floor((diff % 86400000) / 3600000)
   const m = Math.floor((diff % 3600000) / 60000)
   const s = Math.floor((diff % 60000) / 1000)
 
-  // Mode réduit : l'utilisateur est "entré" et on décompte encore → pastille flottante.
-  if (dismissed && !celebrating) {
+  // L'utilisateur est "entré" (a cliqué sur Entrer).
+  if (dismissed) {
+    // Pendant la célébration : on laisse l'appli totalement libre (le feu d'artifice
+    // ambiant continue sur les pages forfaits). Sinon : petite pastille de décompte.
+    if (celebrating) return null
     return (
       <button className="wc-mini" onClick={onExpand} title="Voir le compte à rebours">
         <span className="wc-mini-cup">🏆</span>

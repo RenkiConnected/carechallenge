@@ -685,7 +685,7 @@ img, svg, canvas { max-width:100%; }
 }
 @keyframes wc-shimmer { 0%,100%{opacity:.7} 50%{opacity:1} }
 
-.wc-inner { position:relative; z-index:2; display:flex; flex-direction:column; align-items:center; gap:18px; max-width:880px; width:100%; }
+.wc-inner { position:relative; z-index:70; display:flex; flex-direction:column; align-items:center; gap:18px; max-width:880px; width:100%; }
 
 .wc-logo-card {
   background:linear-gradient(180deg,#ffffff,#f1f3f6);
