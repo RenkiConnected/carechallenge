@@ -7,6 +7,23 @@ import {
 function getInitials(name) { return name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) }
 const MEDALS = ['🥇','🥈','🥉']
 
+// Pronostics validés à créditer dans un module forfait donné :
+// les pronostics France–Sénégal (feeds:'poules') alimentent la Phase de Poules,
+// les autres (France–Irlande) alimentent la Préparation Mondiale.
+function validatedForFeed(modules, coaches, isPoules) {
+  const map = {}
+  modules.forEach(m => {
+    if (m.type !== 'pronostic') return
+    const f = m.settings?.feeds
+    const matches = isPoules ? f === 'poules' : f !== 'poules'
+    if (!matches) return
+    ;(m.players||[]).forEach(p => { map[p.id]=(map[p.id]||0)+(p.validatedPronos||0) })
+    if (m.coachData) Object.entries(m.coachData).forEach(([id,d])=>{ map[id]=(map[id]||0)+(d?.validatedPronos||0) })
+  })
+  if (!isPoules) coaches.forEach(c => { if (c.validatedPronos) map[c.id]=(map[c.id]||0)+(c.validatedPronos||0) })
+  return map
+}
+
 // ── Ligne joueur — vue combinée ──────────────────────────────────────────────
 function CombinedRow({ entry, rank, expanded, onToggle }) {
   const hasPrize = entry.totalEarnings > 0
@@ -289,7 +306,12 @@ export default function Leaderboard({ modules, coaches, activeModId }) {
         if (!mod) return null
         return mod.type === 'pronostic'
           ? <PronoModuleView mod={mod} coaches={coaches} />
-          : <ForfaitModuleView mod={mod} coaches={coaches} validatedById={validatedById} isCanonical={mod.id===canonId} />
+          : (() => {
+              const isPoules = mod.settings?.phase === 'poules'
+              const credited = mod.id === canonId || isPoules
+              const map = credited ? validatedForFeed(modules, coaches, isPoules) : {}
+              return <ForfaitModuleView mod={mod} coaches={coaches} validatedById={map} isCanonical={credited} />
+            })()
       })()}
     </div>
   )

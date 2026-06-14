@@ -798,8 +798,10 @@ service cloud.firestore {
         <div className="ticker-wrap">
           <div className="ticker-content">
             {(() => {
+              const pronoMatch = modSettings.matchLabel || 'FRANCE VS IRLANDE'
+              const pronoTarget = modSettings.feeds === 'poules' ? 'PHASE DE POULES' : 'PRÉPARATION MONDIALE'
               const items = isProno
-                ? ['🎯 BON PRONOSTIQUEUR · FRANCE VS IRLANDE', '⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS', '🏆 CLASSEMENT COMPTABILISÉ DANS PRÉPARATION MONDIALE', '🔧 RÉSULTAT OFFICIEL SAISI PAR LE MANAGER']
+                ? [`🎯 BON PRONOSTIQUEUR · ${pronoMatch}`, '⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS', `🏆 CLASSEMENT COMPTABILISÉ DANS ${pronoTarget}`, '🔧 RÉSULTAT OFFICIEL SAISI PAR LE MANAGER']
                 : (modSettings.phase === 'poules'
                     ? [`⚽ ${modSettings.bannerPhase || 'PHASE DE POULES'} · ${modSettings.bannerDates || "JUSQU'AU 24 JUIN 2026"}`, `🏆 OBJECTIF ${objective} FORFAITS → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🇫🇷 FRANCE VS SÉNÉGAL · PHASE DE GROUPE', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/FORFAIT SI 100 ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
                     : [`⚽ ${modSettings.bannerPhase || 'PHASE DE PRÉPARATION MONDIALE'} · ${modSettings.bannerDates || "JUSQU'AU 11/06/2026"}`, `🏆 OBJECTIF ${objective} ${unitU} → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🎯 PRONOSTIC FRANCE VS IRLANDE COMPTÉ ICI', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/${unit} SI OBJECTIF ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE'])

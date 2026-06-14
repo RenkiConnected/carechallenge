@@ -87,18 +87,18 @@ export function buildCombinedRanking(modules, coaches) {
   // Map id → player aggregate
   const map = new Map()
 
-  // Nombre de pronostics validés par joueur (tous modules pronostic + coaches)
-  const validatedById = {}
+  // Pronostics validés répartis selon le classement alimenté :
+  // France–Sénégal (feeds:'poules') → Phase de Poules ; France–Irlande → Préparation.
+  const validatedPrep = {}, validatedPoules = {}
   ;(modules || []).forEach(m => {
-    if (m.type === 'pronostic') (m.players || []).forEach(p => {
-      validatedById[String(p.id)] = (validatedById[String(p.id)] || 0) + (p.validatedPronos || 0)
-    })
+    if (m.type !== 'pronostic') return
+    const target = m.settings?.feeds === 'poules' ? validatedPoules : validatedPrep
+    ;(m.players || []).forEach(p => { target[String(p.id)] = (target[String(p.id)] || 0) + (p.validatedPronos || 0) })
+    if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => { target[String(id)] = (target[String(id)] || 0) + (d?.validatedPronos || 0) })
   })
-  ;(coaches || []).forEach(c => {
-    if (c.validatedPronos) validatedById[String(c.id)] = (validatedById[String(c.id)] || 0) + (c.validatedPronos || 0)
-  })
+  ;(coaches || []).forEach(c => { if (c.validatedPronos) validatedPrep[String(c.id)] = (validatedPrep[String(c.id)] || 0) + (c.validatedPronos || 0) })
 
-  // La 1ère partie "forfaits" est celle qui porte les ballons (donc le bonus de validation)
+  // La 1ère partie "forfaits" (Préparation) est le classement canonique.
   const canonId = ((modules || []).find(m => (m.type || 'forfaits') === 'forfaits') || (modules || [])[0])?.id
 
   // Init depuis coaches
@@ -120,6 +120,8 @@ export function buildCombinedRanking(modules, coaches) {
       const totalGoals = allPeople.reduce((s, p) => s + (p.goals || 0), 0)
       const s = { ...DEFAULT_SETTINGS, ...mod.settings }
       const isCanon = mod.id === canonId
+      const isPoules = mod.settings?.phase === 'poules'
+      const vmap = isPoules ? validatedPoules : (isCanon ? validatedPrep : null)
 
       allPeople.forEach(p => {
         const key = String(p.id)
@@ -129,7 +131,7 @@ export function buildCombinedRanking(modules, coaches) {
         }
         const entry = map.get(key)
         entry.name = p.name; entry.color = p.color
-        const vp = isCanon ? (validatedById[key] || 0) : 0
+        const vp = vmap ? (vmap[key] || 0) : 0
         const total = getPlayerTotalEarnings(p, allPeople, totalGoals, s, vp)
         const forfaitOnly = getPlayerEarnings(p, allPeople, totalGoals, s)
         entry.totalGoals += (p.goals || 0)
@@ -139,9 +141,13 @@ export function buildCombinedRanking(modules, coaches) {
         entry.moduleDetails.push({ type:'forfait', name:mod.name, goals:p.goals || 0, earnings:total })
       })
     } else if (mod.type === 'pronostic') {
-      // Le gain est déjà compté dans la 1ère partie (ballons validés à 20€).
+      // Le gain est déjà compté dans le classement alimenté (ballons validés à 20€).
       // Ici on n'agrège que le nombre de pronostics validés (pour les badges).
-      allPeople.forEach(p => {
+      const pronoPeople = [
+        ...(mod.players || []),
+        ...coaches.map(c => mod.coachData ? { ...c, ...(mod.coachData[c.id] || { validatedPronos:0, pronos:0 }) } : c),
+      ]
+      pronoPeople.forEach(p => {
         const key = String(p.id)
         if (!map.has(key)) {
           map.set(key, { id:p.id, name:p.name, color:p.color, isCoach:p.isCoach, role:p.role,
