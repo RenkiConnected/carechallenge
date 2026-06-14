@@ -753,3 +753,17 @@ img, svg, canvas { max-width:100%; }
   .wc-clock { gap:5px; }
   .wc-kicker { letter-spacing:3px; }
 }
+
+/* Bandeau d'ouverture/fermeture des pronostics (fenêtre de temps) */
+.prono-window-banner { text-align:center; font-family:'Barlow Condensed',sans-serif; font-weight:700; letter-spacing:.06em; text-transform:uppercase; font-size:.95rem; padding:10px 14px; border-radius:12px; margin:4px auto 10px; max-width:560px; }
+.prono-window-banner.open { color:#0b3d1e; background:linear-gradient(90deg,#2ecc71,#27ae60); box-shadow:0 4px 16px rgba(46,204,113,.35); }
+.prono-window-banner.closed { color:#ffd9d0; background:rgba(231,76,60,.18); border:1px solid rgba(231,76,60,.5); }
+
+/* Carte de pronostic verrouillée (visible mais pas encore cliquable) */
+.prono-card-locked { opacity:.72; }
+.prono-card-locked .score-inp,
+.prono-card-locked .add-prono-ball,
+.prono-card-locked .rem-prono-ball { cursor:not-allowed; }
+.add-prono-ball:disabled,
+.rem-prono-ball:disabled { opacity:.4; cursor:not-allowed; filter:grayscale(.6); }
+.score-inp:disabled { opacity:.55; cursor:not-allowed; }

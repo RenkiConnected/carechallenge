@@ -31,13 +31,23 @@ function makePronoModule(id) {
   return { id, name: 'Bon Pronostiqueur', type: 'pronostic', players: BASE_PLAYERS.map(p => ({ ...p, goals: 0, pronos: 0, validatedPronos: 0, franceScore: '', irelandScore: '' })), settings: { pronoBonus: 20 } }
 }
 
-// Préréglage 2ème partie — Phase de poules (objectif 100 lignes, 12→27 juillet)
+// Préréglage 2ème partie — Phase de poules (objectif 100 forfaits, jusqu'au 24 juin)
 const PART2_SETTINGS = {
   tier1Rate: 10, tier2Rate: 12, tier3Rate: 15, topScorerRate: 20,
   tier1Threshold: 50, tier2Threshold: 80, objective: 100,
   phaseEnded: false, minForTier3: 3,
   unit: 'forfait', phase: 'poules',
-  bannerPhase: 'PHASE DE POULES', bannerDates: 'DU 12 AU 27 JUILLET 2026',
+  bannerPhase: 'PHASE DE POULES', bannerDates: "JUSQU'AU 24 JUIN 2026",
+}
+
+// Préréglage du match France–Sénégal (pronostic de la PHASE DE GROUPE).
+// Alimente la Phase de Poules (feeds:'poules'). Remplissable du 15/06 au 16/06 20h59.
+const SENEGAL_SETTINGS = {
+  pronoBonus: 20, feeds: 'poules',
+  homeFlag: '🇫🇷', homeName: 'FRANCE', homeCode: 'FRA',
+  awayFlag: '🇸🇳', awayName: 'SÉNÉGAL', awayCode: 'SEN',
+  matchLabel: 'FRANCE VS SÉNÉGAL',
+  window: { from: '2026-06-15T00:00:00', to: '2026-06-16T20:59:59' },
 }
 
 function loadLocal() { try { const r = localStorage.getItem('fc2026_v5'); return r ? JSON.parse(r) : null } catch { return null } }
@@ -93,8 +103,54 @@ function reconcileModules(modules) {
     if (settings && settings.tier1Rate === 9.99) settings = { ...settings, tier1Rate: 10 }
     // Migration : Phase de poules désormais en "forfaits" (et non "lignes")
     if (settings && settings.phase === 'poules' && settings.unit === 'ligne') settings = { ...settings, unit: 'forfait' }
+    // Migration : la phase de poules va jusqu'au 24 juin (et non 27 juillet)
+    if (settings && settings.phase === 'poules' && settings.bannerDates && /JUILLET/i.test(settings.bannerDates)) settings = { ...settings, bannerDates: "JUSQU'AU 24 JUIN 2026" }
     return { ...m, players, settings }
   })
+}
+
+// ─── Fusion 3-way (anti-écrasement) ─────────────────────────────────────────
+// base = ancêtre commun (dernier état synchronisé), local = nos modifications,
+// server = état actuel du serveur (modifs des autres). Règle : pour chaque champ,
+// si NOUS l'avons changé (local ≠ base) on garde le nôtre, sinon on prend le serveur.
+// Ainsi deux personnes qui éditent des choses différentes ne s'écrasent jamais.
+const _diff = (a, b) => JSON.stringify(a) !== JSON.stringify(b)
+function mergeObj(b, l, s) {
+  if (!s) return l
+  if (!l) return s
+  const keys = new Set([...Object.keys(l), ...Object.keys(s)])
+  const out = {}
+  keys.forEach(k => {
+    const lv = l[k], bv = b ? b[k] : undefined, sv = s[k]
+    out[k] = _diff(lv, bv) ? lv : (k in s ? sv : lv)
+  })
+  return out
+}
+function mergeById(bArr, lArr, sArr) {
+  const b = new Map((bArr || []).map(p => [p.id, p]))
+  const s = new Map((sArr || []).map(p => [p.id, p]))
+  const seen = new Set()
+  const out = (lArr || []).map(lp => { seen.add(lp.id); return mergeObj(b.get(lp.id), lp, s.get(lp.id)) })
+  ;(sArr || []).forEach(sp => { if (!seen.has(sp.id)) out.push(sp) }) // ajouté par un autre
+  return out
+}
+function mergeModule(b, l, s) {
+  if (!s) return l
+  if (!l) return s
+  const out = mergeObj(b, l, s)           // champs scalaires (name, type, result, settings…)
+  out.players  = mergeById(b?.players,  l.players,  s.players)
+  out.settings = mergeObj(b?.settings,  l.settings, s.settings)
+  return out
+}
+export function mergeState(base, local, server) {
+  const b = base || {}, l = local || {}, s = server || {}
+  const bM = new Map((b.modules || []).map(m => [m.id, m]))
+  const sM = new Map((s.modules || []).map(m => [m.id, m]))
+  const seen = new Set()
+  const modules = (l.modules || []).map(lm => { seen.add(lm.id); return mergeModule(bM.get(lm.id), lm, sM.get(lm.id)) })
+  ;(s.modules || []).forEach(sm => { if (!seen.has(sm.id)) modules.push(sm) }) // module ajouté ailleurs
+  const coaches = mergeById(b.coaches, l.coaches, s.coaches)
+  return { modules, coaches }
 }
 
 export default function App() {
@@ -151,13 +207,30 @@ export default function App() {
   // (sinon l'état par défaut écraserait les vraies données partagées).
   const hydrated = useRef(false)
   const savedTs = saved?.updatedAt || 0
+  // Ancêtre commun (dernier état synchronisé) et dernier état serveur connu — pour la fusion 3-way.
+  const baseRef = useRef(saved ? { modules: saved.modules, coaches: saved.coaches } : null)
+  const serverRef = useRef(null)
+  const mergeReflect = useRef(false)
   // Snapshot de l'état courant (pour pousser/réparer le serveur)
   const stateRef = useRef({ modules, coaches, activeMod })
   useEffect(() => { stateRef.current = { modules, coaches, activeMod } }, [modules, coaches, activeMod])
 
+  // Fusionne notre état avec les éventuelles modifs concurrentes du serveur (anti-écrasement).
+  const mergeForWrite = useCallback((m, c) => {
+    if (baseRef.current && serverRef.current && _diff(serverRef.current.modules, baseRef.current.modules)) {
+      const merged = mergeState(baseRef.current, { modules: m, coaches: c }, serverRef.current)
+      return { modules: reconcileModules(merged.modules), coaches: merged.coaches }
+    }
+    return { modules: m, coaches: c }
+  }, [])
+
   // Écrit immédiatement l'état courant sur Firebase (réparation / restauration), avec horodatage neuf
   const forcePush = useCallback(() => {
-    const { modules: m, coaches: c, activeMod: am } = stateRef.current
+    const { modules: m0, coaches: c0, activeMod: am } = stateRef.current
+    const { modules: m, coaches: c } = mergeForWrite(m0, c0)
+    if (_diff(m, m0)) { mergeReflect.current = true; setModules(m) }
+    if (_diff(c, c0)) { setCoaches(c) }
+    baseRef.current = { modules: m, coaches: c }
     const now = Date.now()
     lastLocalEdit.current = now
     lastAcceptedAt.current = now
@@ -167,7 +240,7 @@ export default function App() {
       if (saveTimer.current) clearTimeout(saveTimer.current)
       setDoc(doc(db, 'challenge', 'state'), data).catch(e => { setFbError(e.code || ''); setFbStatus('offline') })
     }
-  }, [])
+  }, [mergeForWrite])
 
   // Sauvegarde : télécharge un fichier JSON de toutes les données
   const exportData = useCallback(() => {
@@ -215,9 +288,13 @@ export default function App() {
           return
         }
         const d = snap.data()
+        // On mémorise TOUJOURS le dernier état serveur connu (même si on ne l'applique
+        // pas à l'écran) pour pouvoir fusionner sans rien écraser au moment d'écrire.
+        serverRef.current = { modules: d.modules, coaches: d.coaches }
 
-        // 1) Notre propre écriture qui revient → on ignore.
+        // 1) Notre propre écriture qui revient → on ignore (et le serveur = notre nouvel ancêtre).
         if (d.clientId && d.clientId === clientId.current) {
+          baseRef.current = { modules: d.modules, coaches: d.coaches }
           lastAcceptedAt.current = d.updatedAt || lastAcceptedAt.current
           if ((d.updatedAt || 0) >= lastLocalEdit.current) lastLocalEdit.current = 0
           hydrated.current = true
@@ -241,8 +318,11 @@ export default function App() {
         if (hydrated.current && selectedIdRef.current != null) { return }
         applyingRemote.current = true
         if (saveTimer.current) clearTimeout(saveTimer.current)
-        if (d.modules)   setModules(reconcileModules(d.modules))
-        if (d.coaches)   setCoaches(d.coaches)
+        const remoteMods = d.modules ? reconcileModules(d.modules) : null
+        if (remoteMods) setModules(remoteMods)
+        if (d.coaches)  setCoaches(d.coaches)
+        // On vient d'adopter l'état serveur → c'est notre nouvel ancêtre commun.
+        baseRef.current = { modules: remoteMods || (d.modules), coaches: d.coaches }
         // La navigation (partie/onglet active) est LOCALE à chaque personne :
         // on n'applique JAMAIS l'activeMod d'un autre utilisateur (sinon l'écran saute).
         setGotRemote(true)
@@ -255,6 +335,8 @@ export default function App() {
   }, [])
 
   const persist = useCallback((m, c, am) => {
+    // Ré-entrée provoquée par notre propre fusion → ne rien faire (l'écriture est déjà programmée).
+    if (mergeReflect.current) { mergeReflect.current = false; return }
     // Ne pas ré-écrire l'état qu'on vient juste de recevoir du serveur.
     if (applyingRemote.current) {
       applyingRemote.current = false
@@ -262,8 +344,18 @@ export default function App() {
       return
     }
 
+    // Fusion 3-way : si un autre a modifié le serveur entre-temps, on combine au lieu d'écraser.
+    let outM = m, outC = c
+    if (hydrated.current) {
+      const merged = mergeForWrite(m, c)
+      outM = merged.modules; outC = merged.coaches
+      if (_diff(outM, m)) { mergeReflect.current = true; setModules(outM) }
+      if (_diff(outC, c)) { mergeReflect.current = true; setCoaches(outC) }
+    }
+
     const now = Date.now()
-    const data = { modules: m, coaches: c, activeMod: am, updatedAt: now, clientId: clientId.current }
+    const data = { modules: outM, coaches: outC, activeMod: am, updatedAt: now, clientId: clientId.current }
+    baseRef.current = { modules: outM, coaches: outC } // notre nouvel ancêtre commun
     saveLocal(data) // localStorage : toujours (sauvegarde locale immédiate)
 
     // Firebase : seulement après avoir reçu l'état serveur (évite d'écraser les vraies données)
@@ -275,7 +367,7 @@ export default function App() {
         setDoc(doc(db,'challenge','state'), data).catch(e => { console.warn('[FB write]',e); setFbError(e.code || e.message || ''); setFbStatus('offline') })
       }, 400)
     }
-  }, [])
+  }, [mergeForWrite])
 
   useEffect(() => { persist(modules, coaches, activeMod) }, [modules, coaches, activeMod, persist])
 
@@ -297,7 +389,24 @@ export default function App() {
     })
   }, [modules, fbStatus])
 
-  // ── Computed ──────────────────────────────────────────────────────────────
+  // Création AUTOMATIQUE du pronostic France–Sénégal (phase de groupe → alimente la Phase de Poules)
+  const senDone = useRef(false)
+  useEffect(() => {
+    if (senDone.current) return
+    if (isConfigured && db && !hydrated.current && fbStatus === 'connecting') return
+    const hasSen = modules.some(m => m.type === 'pronostic' && m.settings?.feeds === 'poules')
+    if (hasSen || localStorage.getItem('fc2026_sen') === 'done') { senDone.current = true; return }
+    // on attend que la Phase de Poules existe pour que le pronostic puisse l'alimenter
+    if (!modules.some(m => m.settings?.phase === 'poules')) return
+    senDone.current = true
+    localStorage.setItem('fc2026_sen', 'done')
+    const nid = uniqueId()
+    setModules(prev => {
+      if (prev.some(m => m.type === 'pronostic' && m.settings?.feeds === 'poules')) return prev
+      const players = playersFromRoster(prev, 'pronostic')
+      return [...prev, { id: nid, name: 'France - Sénégal', type: 'pronostic', players, coachData: {}, settings: { ...SENEGAL_SETTINGS } }]
+    })
+  }, [modules, fbStatus])
   const activeModule  = modules.find(m => m.id === activeMod) || modules[0]
   const modPlayers    = activeModule?.players || []
   const modSettings   = activeModule?.settings || DEFAULT_SETTINGS
@@ -306,13 +415,22 @@ export default function App() {
   const totalGoals    = isProno ? 0 : allPeople.reduce((s,p) => s+(p.goals||0), 0)
   const currentTier   = getCurrentTier(totalGoals, modSettings)
   const tierRate      = getTierRate(totalGoals, modSettings)
-  // Nombre de pronostics validés par joueur (sert à valoriser ces ballons à 20€ partout)
+  // Nombre de pronostics validés par joueur (valorise ces ballons à 20€).
+  // Chaque pronostic alimente SON classement : France–Sénégal → Phase de Poules,
+  // France–Irlande → Préparation Mondiale. On ne mélange donc pas les deux.
   const validatedById = useMemo(() => {
     const map = {}
-    modules.forEach(m => { if (m.type === 'pronostic') (m.players||[]).forEach(p => { map[p.id] = (map[p.id]||0) + (p.validatedPronos||0) }) })
-    coaches.forEach(c => { if (c.validatedPronos) map[c.id] = (map[c.id]||0) + (c.validatedPronos||0) })
+    const activeIsPoules = activeModule?.settings?.phase === 'poules'
+    const feedsThis = m => { const f = m.settings?.feeds; return activeIsPoules ? f === 'poules' : f !== 'poules' }
+    modules.forEach(m => {
+      if (m.type !== 'pronostic' || !feedsThis(m)) return
+      ;(m.players || []).forEach(p => { map[p.id] = (map[p.id] || 0) + (p.validatedPronos || 0) })
+      if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => { map[id] = (map[id] || 0) + (d?.validatedPronos || 0) })
+    })
+    // Pronostic historique France–Irlande (coachs en global, sans coachData) → groupe Préparation
+    if (!activeIsPoules) coaches.forEach(c => { if (c.validatedPronos) map[c.id] = (map[c.id] || 0) + (c.validatedPronos || 0) })
     return map
-  }, [modules, coaches])
+  }, [modules, coaches, activeModule])
 
   // ── Helpers d'update robustes (utilise ref, pas closure) ──────────────────
   // Met à jour les joueurs du MODULE ACTIF
@@ -341,10 +459,23 @@ export default function App() {
       setModules(prev => prev.map(m => ({
         ...m, players: m.players.map(p => p.id === id ? { ...p, ...updates } : p),
       })))
-    } else {
-      // données par-partie → uniquement la partie active
-      setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
+      setCoaches(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
+      return
     }
+    // Pronostic d'un coach dans un match à stockage par-match (France–Sénégal) → coachData
+    const active = stateRef.current.modules.find(m => m.id === activeModRef.current)
+    const coachMode = active && active.coachData !== undefined && stateRef.current.coaches.some(c => c.id === id)
+    if (coachMode) {
+      setModules(prev => prev.map(m => {
+        if (m.id !== activeModRef.current) return m
+        const cd = { ...(m.coachData || {}) }
+        cd[id] = { ...(cd[id] || {}), ...updates }
+        return { ...m, coachData: cd }
+      }))
+      return
+    }
+    // données par-partie → uniquement la partie active (+ coachs en global pour le reste)
+    setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
     setCoaches(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
   }, [setActivePlayers])
 
@@ -392,41 +523,75 @@ export default function App() {
 
   // ── Pronostics ──────────────────────────────────────────────────────────────
   // Ajouter un ballon dans Bon Pronostiqueur = +1 pronostic ET +1 ballon (forfait) en 1ère Partie
+  // Module forfait cible d'un pronostic : France–Sénégal → Phase de Poules, sinon Préparation.
+  const targetForfaitModule = (prev, pronoModule) => {
+    if (pronoModule?.settings?.feeds === 'poules') return prev.find(m => m.settings?.phase === 'poules')
+    return prev.find(m => (m.type || 'forfaits') === 'forfaits') || prev[0]
+  }
+
   const addPronoBall = useCallback((id) => {
     setModules(prev => {
-      const canon = prev.find(m => (m.type || 'forfaits') === 'forfaits') || prev[0]
+      const active = prev.find(m => m.id === activeModRef.current)
+      const target = targetForfaitModule(prev, active)
+      const coachMode = active && active.coachData !== undefined
       return prev.map(m => {
         let mm = m
-        if (m.id === activeModRef.current) // module pronostic actif → +1 prono
-          mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, pronos: (p.pronos||0)+1 } : p) }
-        if (canon && m.id === canon.id)    // 1ère Partie → +1 forfait
-          mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, goals: (p.goals||0)+1 } : p) }
+        if (m.id === activeModRef.current) {
+          if (coachMode && stateRef.current.coaches.some(c => c.id === id)) {
+            const cd = { ...(mm.coachData || {}) }
+            const cur = cd[id] || {}
+            cd[id] = { ...cur, pronos: (cur.pronos || 0) + 1 }
+            mm = { ...mm, coachData: cd }
+          } else {
+            mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, pronos: (p.pronos || 0) + 1 } : p) }
+          }
+        }
+        if (target && m.id === target.id) // +1 forfait dans le classement alimenté
+          mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, goals: (p.goals || 0) + 1 } : p) }
         return mm
       })
     })
-    setCoaches(prev => prev.map(p => p.id === id ? { ...p, pronos:(p.pronos||0)+1, goals:(p.goals||0)+1 } : p))
+    // coach : forfait global (les coachs n'ont pas de fiche par-partie) ; prono géré ci-dessus si coachMode
+    const active = stateRef.current.modules.find(m => m.id === activeModRef.current)
+    const coachMode = active && active.coachData !== undefined
+    setCoaches(prev => prev.map(p => p.id === id
+      ? { ...p, goals: (p.goals || 0) + 1, ...(coachMode ? {} : { pronos: (p.pronos || 0) + 1 }) }
+      : p))
   }, [])
 
   const removePronoBall = useCallback((id) => {
     setModules(prev => {
-      const canon = prev.find(m => (m.type || 'forfaits') === 'forfaits') || prev[0]
+      const active = prev.find(m => m.id === activeModRef.current)
+      const target = targetForfaitModule(prev, active)
+      const coachMode = active && active.coachData !== undefined
       return prev.map(m => {
         let mm = m
-        if (m.id === activeModRef.current)
-          mm = { ...mm, players: mm.players.map(p => {
-            if (p.id !== id) return p
-            const np = Math.max(0, (p.pronos||0)-1)
-            return { ...p, pronos: np, validatedPronos: Math.min(p.validatedPronos||0, np) }
-          }) }
-        if (canon && m.id === canon.id)
-          mm = { ...mm, players: mm.players.map(p => p.id === id && (p.goals||0) > 0 ? { ...p, goals: p.goals-1 } : p) }
+        if (m.id === activeModRef.current) {
+          if (coachMode && stateRef.current.coaches.some(c => c.id === id)) {
+            const cd = { ...(mm.coachData || {}) }
+            const cur = cd[id] || {}
+            const np = Math.max(0, (cur.pronos || 0) - 1)
+            cd[id] = { ...cur, pronos: np, validatedPronos: Math.min(cur.validatedPronos || 0, np) }
+            mm = { ...mm, coachData: cd }
+          } else {
+            mm = { ...mm, players: mm.players.map(p => {
+              if (p.id !== id) return p
+              const np = Math.max(0, (p.pronos || 0) - 1)
+              return { ...p, pronos: np, validatedPronos: Math.min(p.validatedPronos || 0, np) }
+            }) }
+          }
+        }
+        if (target && m.id === target.id)
+          mm = { ...mm, players: mm.players.map(p => p.id === id && (p.goals || 0) > 0 ? { ...p, goals: p.goals - 1 } : p) }
         return mm
       })
     })
+    const active = stateRef.current.modules.find(m => m.id === activeModRef.current)
+    const coachMode = active && active.coachData !== undefined
     setCoaches(prev => prev.map(p => {
       if (p.id !== id) return p
-      const np = Math.max(0, (p.pronos||0)-1)
-      return { ...p, pronos: np, validatedPronos: Math.min(p.validatedPronos||0, np), goals: Math.max(0, (p.goals||0)-1) }
+      const np = Math.max(0, (p.pronos || 0) - 1)
+      return { ...p, goals: Math.max(0, (p.goals || 0) - 1), ...(coachMode ? {} : { pronos: np, validatedPronos: Math.min(p.validatedPronos || 0, np) }) }
     }))
   }, [])
 
@@ -450,11 +615,18 @@ export default function App() {
     const isWin = p => predicted(p) && Number(p.franceScore) === Number(rf) && Number(p.irelandScore) === Number(ri)
     const status = p => predicted(p) ? (isWin(p) ? 'won' : 'lost') : ''
     const newVP = p => isWin(p) ? (p.pronos || 0) : 0   // toutes les lignes du jour à 20€ si bon prono
-    setModules(prev => prev.map(m => m.id === moduleId
-      ? { ...m, validatedRound: (m.validatedRound || 0) + 1,
-          players: m.players.map(p => ({ ...p, validatedPronos: newVP(p), pronoStatus: status(p) })) }
-      : m))
-    setCoaches(prev => prev.map(c => ({ ...c, validatedPronos: newVP(c), pronoStatus: status(c) })))
+    setModules(prev => prev.map(m => {
+      if (m.id !== moduleId) return m
+      const players = m.players.map(p => ({ ...p, validatedPronos: newVP(p), pronoStatus: status(p) }))
+      let coachData = m.coachData
+      if (m.coachData !== undefined) {
+        coachData = { ...m.coachData }
+        cs.forEach(c => { const d = coachData[c.id] || {}; coachData[c.id] = { ...d, validatedPronos: newVP(d), pronoStatus: status(d) } })
+      }
+      return { ...m, validatedRound: (m.validatedRound || 0) + 1, players, ...(coachData !== undefined ? { coachData } : {}) }
+    }))
+    // France–Irlande historique : coachs en global
+    if (mod?.coachData === undefined) setCoaches(prev => prev.map(c => ({ ...c, validatedPronos: newVP(c), pronoStatus: status(c) })))
   }, [])
 
   // ── Gestion modules ───────────────────────────────────────────────────────
@@ -629,7 +801,7 @@ service cloud.firestore {
               const items = isProno
                 ? ['🎯 BON PRONOSTIQUEUR · FRANCE VS IRLANDE', '⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS', '🏆 CLASSEMENT COMPTABILISÉ DANS PRÉPARATION MONDIALE', '🔧 RÉSULTAT OFFICIEL SAISI PAR LE MANAGER']
                 : (modSettings.phase === 'poules'
-                    ? [`⚽ ${modSettings.bannerPhase || 'PHASE DE POULES'} · ${modSettings.bannerDates || 'DU 12 AU 27 JUILLET 2026'}`, `🏆 OBJECTIF ${objective} FORFAITS → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🇫🇷 FRANCE VS IRLANDE · PHASE DE POULES', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/FORFAIT SI 100 ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
+                    ? [`⚽ ${modSettings.bannerPhase || 'PHASE DE POULES'} · ${modSettings.bannerDates || "JUSQU'AU 24 JUIN 2026"}`, `🏆 OBJECTIF ${objective} FORFAITS → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🇫🇷 FRANCE VS SÉNÉGAL · PHASE DE GROUPE', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/FORFAIT SI 100 ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
                     : [`⚽ ${modSettings.bannerPhase || 'PHASE DE PRÉPARATION MONDIALE'} · ${modSettings.bannerDates || "JUSQU'AU 11/06/2026"}`, `🏆 OBJECTIF ${objective} ${unitU} → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🎯 PRONOSTIC FRANCE VS IRLANDE COMPTÉ ICI', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/${unit} SI OBJECTIF ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE'])
               // contenu dupliqué pour un défilement continu sans coupure
               return [...items, ...items].map((t, i) => <span key={i}>{t}</span>)

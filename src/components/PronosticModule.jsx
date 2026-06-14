@@ -4,30 +4,40 @@ import Fireworks from './Fireworks'
 function getInitials(name) { return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
 const hasScore = p => p.franceScore !== '' && p.franceScore != null && p.irelandScore !== '' && p.irelandScore != null
 
-function PredictionPoll({ player, onUpdate }) {
+// Équipes (génériques) : par défaut France–Irlande, sinon configurées dans settings.
+function teamsOf(module) {
+  const s = module?.settings || {}
+  return {
+    homeFlag: s.homeFlag || '🇫🇷', homeName: s.homeName || 'FRANCE', homeCode: s.homeCode || 'FRA',
+    awayFlag: s.awayFlag || '🇮🇪', awayName: s.awayName || 'IRLANDE', awayCode: s.awayCode || 'IRL',
+    label: s.matchLabel || `FRANCE VS ${(s.awayName || 'IRLANDE')}`,
+  }
+}
+
+function PredictionPoll({ player, onUpdate, T, locked }) {
   return (
     <div className="pred-score-box">
       <div className="pred-flags-row">
-        <div className="pred-team"><span className="pred-flag">🇫🇷</span><span className="pred-team-name">FRA</span></div>
+        <div className="pred-team"><span className="pred-flag">{T.homeFlag}</span><span className="pred-team-name">{T.homeCode}</span></div>
         <div className="pred-inputs">
-          <input className="score-inp" type="number" min="0" max="20" value={player.franceScore ?? ''} placeholder="–"
+          <input className="score-inp" type="number" min="0" max="20" value={player.franceScore ?? ''} placeholder="–" disabled={locked}
             onChange={e => onUpdate(player.id, { franceScore: e.target.value === '' ? '' : Number(e.target.value) })} />
           <span className="score-colon">:</span>
-          <input className="score-inp" type="number" min="0" max="20" value={player.irelandScore ?? ''} placeholder="–"
+          <input className="score-inp" type="number" min="0" max="20" value={player.irelandScore ?? ''} placeholder="–" disabled={locked}
             onChange={e => onUpdate(player.id, { irelandScore: e.target.value === '' ? '' : Number(e.target.value) })} />
         </div>
-        <div className="pred-team"><span className="pred-flag">🇮🇪</span><span className="pred-team-name">IRL</span></div>
+        <div className="pred-team"><span className="pred-flag">{T.awayFlag}</span><span className="pred-team-name">{T.awayCode}</span></div>
       </div>
     </div>
   )
 }
 
-function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall }) {
+function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, locked }) {
   const won = player.pronoStatus === 'won'
   const lost = player.pronoStatus === 'lost'
   const lines = player.pronos || 0
   return (
-    <div className={`prono-card ${won ? 'prono-card-won prono-winner-anim' : ''} ${lost ? 'prono-card-lost' : ''}`}>
+    <div className={`prono-card ${won ? 'prono-card-won prono-winner-anim' : ''} ${lost ? 'prono-card-lost' : ''} ${locked ? 'prono-card-locked' : ''}`}>
       <div className="prono-card-avatar-row">
         <div className="prono-avatar-wrap">
           {won && <span className="prono-float-crown">👑</span>}
@@ -40,17 +50,17 @@ function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall }) {
           {won && lines > 0 && <div className="prono-card-earnings">+{lines * PRONO_BONUS}€</div>}
         </div>
       </div>
-      <PredictionPoll player={player} onUpdate={onUpdate} />
+      <PredictionPoll player={player} onUpdate={onUpdate} T={T} locked={locked} />
 
-      {/* Lignes du jour : comptent en Préparation Mondiale ; 20€ chacune si bon pronostic */}
       <div className="prono-balls-section">
         <div className="prono-balls-label">Lignes du jour{won && lines > 0 ? ' · payées 20€ 🎉' : ''}</div>
         <div className="prono-balls-row">
           {Array.from({ length: lines }, (_, i) => (
             <span key={i} className={`prono-ball ${won ? 'prono-ball-won' : 'prono-ball-pending'}`}>⚽</span>
           ))}
-          <button className="add-prono-ball" onClick={() => onAddBall(player.id)} title="Ajouter une ligne du jour (+1 forfait en Préparation Mondiale)">+</button>
-          {lines > 0 && <button className="rem-prono-ball" onClick={() => onRemoveBall(player.id)} title="Retirer une ligne">−</button>}
+          <button className="add-prono-ball" disabled={locked} onClick={() => onAddBall(player.id)}
+            title={locked ? 'Disponible le 15 juin 2026' : 'Ajouter une ligne du jour'}>+</button>
+          {lines > 0 && <button className="rem-prono-ball" disabled={locked} onClick={() => onRemoveBall(player.id)} title="Retirer une ligne">−</button>}
         </div>
       </div>
 
@@ -61,11 +71,33 @@ function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall }) {
   )
 }
 
+function fmtDate(ts) {
+  try { return new Date(ts).toLocaleString('fr-FR', { day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' }) } catch { return '' }
+}
+function fmtDay(ts) {
+  try { return new Date(ts).toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' }) } catch { return '' }
+}
+
 export default function PronosticModule({ module, players, coaches, dashAuth, onUpdatePerson, onSetResult, onValidateAll, onAddBall, onRemoveBall }) {
-  const allPeople = [...players, ...coaches]
+  // Les coachs : si le module a son propre stockage (coachData), on l'utilise (pronostic
+  // indépendant par match) ; sinon on garde les champs globaux (France–Irlande historique).
+  const coachPeople = (module?.coachData !== undefined)
+    ? coaches.map(c => ({ ...c, franceScore:'', irelandScore:'', pronos:0, validatedPronos:0, pronoStatus:'', ...(module.coachData[c.id] || {}) }))
+    : coaches
+  const allPeople = [...players, ...coachPeople]
   const result = module?.result || {}
   const resultSet = result.france !== '' && result.france != null && result.ireland !== '' && result.ireland != null
   const validatedRound = module?.validatedRound || 0
+  const T = teamsOf(module)
+
+  // Fenêtre d'ouverture (optionnelle) : pronostics remplissables seulement entre from et to.
+  const win = module?.settings?.window
+  const now = Date.now()
+  const fromTs = win ? Date.parse(win.from) : null
+  const toTs = win ? Date.parse(win.to) : null
+  const beforeOpen = win && now < fromTs
+  const closed = win && now > toTs
+  const locked = !!(beforeOpen || closed)
 
   const voters = allPeople.filter(hasScore)
   const winners = allPeople.filter(p => p.pronoStatus === 'won')
@@ -74,7 +106,6 @@ export default function PronosticModule({ module, players, coaches, dashAuth, on
 
   return (
     <div className="prono-module">
-      {/* Feu d'artifice plein écran si au moins un bon pronostic */}
       <Fireworks active={winners.length > 0} fixed intense confetti />
       <div className="prono-module-header">
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -90,27 +121,35 @@ export default function PronosticModule({ module, players, coaches, dashAuth, on
       <div className="match-card-big">
         <div className="match-card-overlay" />
         <div className="match-card-inner">
-          <div className="match-card-label">📋 PRONOSTIC · FRANCE VS IRLANDE</div>
+          <div className="match-card-label">📋 PRONOSTIC · {T.label}</div>
           <div className="match-teams-big">
-            <div className="match-team-block france-side"><span className="match-big-flag">🇫🇷</span><span className="match-team-name">FRANCE</span></div>
+            <div className="match-team-block france-side"><span className="match-big-flag">{T.homeFlag}</span><span className="match-team-name">{T.homeName}</span></div>
             <div className="match-center-block"><div className="match-vs">VS</div><div className="match-competition">Coupe du Monde 2026</div></div>
-            <div className="match-team-block ireland-side"><span className="match-big-flag">🇮🇪</span><span className="match-team-name">IRLANDE</span></div>
+            <div className="match-team-block ireland-side"><span className="match-big-flag">{T.awayFlag}</span><span className="match-team-name">{T.awayName}</span></div>
           </div>
           <div className="match-bonus-tag">Pronostic correct = <strong style={{ color:'#ffd700' }}>{PRONO_BONUS}€</strong> de bonus 🏆</div>
         </div>
       </div>
 
+      {win && (
+        beforeOpen
+          ? <div className="prono-window-banner closed">🔒 Match visible — pronostics ouverts aux vendeurs le {fmtDay(fromTs)}</div>
+          : closed
+            ? <div className="prono-window-banner closed">🔒 Pronostics clôturés (fermés le {fmtDate(toTs)})</div>
+            : <div className="prono-window-banner open">🟢 Pronostics ouverts — à remplir jusqu'au {fmtDate(toTs)}</div>
+      )}
+
       {dashAuth ? (
         <div className="prono-result-box">
           <div className="prono-result-title">🏁 Résultat officiel du match</div>
           <div className="prono-result-row">
-            <span className="pred-flag">🇫🇷</span>
+            <span className="pred-flag">{T.homeFlag}</span>
             <input className="score-inp result-inp" type="number" min="0" max="20" placeholder="–"
               value={result.france ?? ''} onChange={e => onSetResult(module.id, 'france', e.target.value === '' ? '' : Number(e.target.value))} />
             <span className="score-colon">:</span>
             <input className="score-inp result-inp" type="number" min="0" max="20" placeholder="–"
               value={result.ireland ?? ''} onChange={e => onSetResult(module.id, 'ireland', e.target.value === '' ? '' : Number(e.target.value))} />
-            <span className="pred-flag">🇮🇪</span>
+            <span className="pred-flag">{T.awayFlag}</span>
           </div>
           <button className="prono-validate-all-btn" disabled={!resultSet} onClick={() => onValidateAll(module.id)}>
             ✓ Valider tous les pronostics
@@ -119,7 +158,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, on
         </div>
       ) : (
         resultSet
-          ? <div className="prono-result-public">🏁 Résultat : 🇫🇷 {result.france} — {result.ireland} 🇮🇪</div>
+          ? <div className="prono-result-public">🏁 Résultat : {T.homeFlag} {result.france} — {result.ireland} {T.awayFlag}</div>
           : <div className="prono-result-public dim">⏳ En attente du résultat officiel…</div>
       )}
 
@@ -138,7 +177,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, on
 
       <div className="prono-grid">
         {allPeople.map(player => (
-          <PlayerPronoCard key={player.id} player={player} onUpdate={onUpdatePerson} onAddBall={onAddBall} onRemoveBall={onRemoveBall} />
+          <PlayerPronoCard key={player.id} player={player} onUpdate={onUpdatePerson} onAddBall={onAddBall} onRemoveBall={onRemoveBall} T={T} locked={locked && !dashAuth} />
         ))}
       </div>
 
