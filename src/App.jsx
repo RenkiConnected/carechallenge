@@ -47,7 +47,7 @@ const SENEGAL_SETTINGS = {
   homeFlag: '🇫🇷', homeName: 'FRANCE', homeCode: 'FRA',
   awayFlag: '🇸🇳', awayName: 'SÉNÉGAL', awayCode: 'SEN',
   matchLabel: 'FRANCE VS SÉNÉGAL',
-  window: { from: '2026-06-15T00:00:00', to: '2026-06-16T20:59:59' },
+  window: { from: '2026-06-16T09:00:00', to: '2026-06-16T20:59:59' },
 }
 
 function loadLocal() { try { const r = localStorage.getItem('fc2026_v5'); return r ? JSON.parse(r) : null } catch { return null } }
@@ -105,6 +105,10 @@ function reconcileModules(modules) {
     if (settings && settings.phase === 'poules' && settings.unit === 'ligne') settings = { ...settings, unit: 'forfait' }
     // Migration : la phase de poules va jusqu'au 24 juin (et non 27 juillet)
     if (settings && settings.phase === 'poules' && settings.bannerDates && /JUILLET/i.test(settings.bannerDates)) settings = { ...settings, bannerDates: "JUSQU'AU 24 JUIN 2026" }
+    // Migration : créneau du pronostic France–Sénégal = 16 juin 09h00 → 20h59
+    if (settings && settings.feeds === 'poules' && settings.window &&
+        (settings.window.from !== '2026-06-16T09:00:00' || settings.window.to !== '2026-06-16T20:59:59'))
+      settings = { ...settings, window: { from: '2026-06-16T09:00:00', to: '2026-06-16T20:59:59' } }
     return { ...m, players, settings }
   })
 }
@@ -183,13 +187,19 @@ export default function App() {
   const activeModRef = useRef(activeMod)
   useEffect(() => { activeModRef.current = activeMod }, [activeMod])
 
-  // À partir de 21h le 11 juin (1er match), on ouvre DIRECTEMENT la Phase de Poules
-  // au chargement (une seule fois — la navigation reste ensuite libre et locale).
+  // Navigation INDÉPENDANTE et PERSISTANTE par appareil : chaque personne retrouve
+  // l'onglet où elle était (sauvegardé en local) et n'est jamais déplacée par les autres.
+  // Au tout premier passage seulement (après le coup d'envoi), on ouvre directement la
+  // Phase de Poules ; ensuite on respecte toujours l'onglet enregistré.
   useEffect(() => {
     if (landedRef.current) return
-    if (Date.now() < GROUP_PHASE_TS) { landedRef.current = true; return }
+    landedRef.current = true
+    if (localStorage.getItem('fc2026_landed') === 'done') return
+    localStorage.setItem('fc2026_landed', 'done')
+    if (saved?.activeMod) return                       // l'utilisateur a déjà un onglet → on le respecte
+    if (Date.now() < GROUP_PHASE_TS) return
     const poules = (modules || []).find(m => m.settings && m.settings.phase === 'poules')
-    if (poules) { setActiveMod(poules.id); setTab('module'); landedRef.current = true }
+    if (poules) { setActiveMod(poules.id); setTab('module') }
   }, [modules])
   const saveTimer = useRef(null)
 

@@ -133,7 +133,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, on
 
       {win && (
         beforeOpen
-          ? <div className="prono-window-banner closed">🔒 Match visible — pronostics ouverts aux vendeurs le {fmtDay(fromTs)}</div>
+          ? <div className="prono-window-banner closed">🔒 Match visible — pronostics ouverts aux vendeurs le {fmtDate(fromTs)}</div>
           : closed
             ? <div className="prono-window-banner closed">🔒 Pronostics clôturés (fermés le {fmtDate(toTs)})</div>
             : <div className="prono-window-banner open">🟢 Pronostics ouverts — à remplir jusqu'au {fmtDate(toTs)}</div>
