@@ -286,8 +286,11 @@ export default function App() {
   // ── Firebase ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isConfigured || !db) { setFbStatus('offline'); return }
-    // Filet de sécurité : si le serveur ne répond pas, on autorise l'écriture après 4s
-    const fallback = setTimeout(() => { hydrated.current = true }, 4000)
+    // Filet de sécurité : si le serveur ne répond pas, on bascule SEULEMENT l'indicateur
+    // sur "hors-ligne". On n'autorise SURTOUT PAS l'écriture distante tant qu'on n'a pas
+    // lu l'état du serveur au moins une fois — sinon un nouvel appareil (mémoire vide)
+    // écraserait les données de tout le monde avec du vide à sa connexion.
+    const fallback = setTimeout(() => { if (!hydrated.current) setFbStatus('offline') }, 6000)
     const unsub = onSnapshot(doc(db, 'challenge', 'state'),
       snap => {
         setFbStatus('ok')
