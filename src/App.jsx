@@ -89,6 +89,7 @@ function reconcileModules(modules) {
   if (!modules || !modules.length) return modules
   const roster = buildRoster(modules)
   if (!roster.size) return modules
+  const canonId = (modules.find(m => (m.type || 'forfaits') === 'forfaits') || modules[0])?.id
   return modules.map(m => {
     const existing = new Map((m.players || []).map(p => [p.id, p]))
     const players = [...roster.values()].map(r => {
@@ -109,7 +110,10 @@ function reconcileModules(modules) {
     if (settings && settings.feeds === 'poules' && settings.window &&
         (settings.window.from !== '2026-06-16T09:00:00' || settings.window.to !== '2026-06-16T20:59:59'))
       settings = { ...settings, window: { from: '2026-06-16T09:00:00', to: '2026-06-16T20:59:59' } }
-    return { ...m, players, settings }
+    // Migration : la 1ère partie s'appelle "Préparation Mondiale"
+    let name = m.name
+    if (m.id === canonId && (name === '1ère Partie' || name === '1ere Partie')) name = 'Préparation Mondiale'
+    return { ...m, name, players, settings }
   })
 }
 
@@ -119,6 +123,23 @@ function reconcileModules(modules) {
 // si NOUS l'avons changé (local ≠ base) on garde le nôtre, sinon on prend le serveur.
 // Ainsi deux personnes qui éditent des choses différentes ne s'écrasent jamais.
 const _diff = (a, b) => JSON.stringify(a) !== JSON.stringify(b)
+
+// Détecte un état "par défaut / vide" (roster de démarrage Alex/Jordan/…) : le vrai
+// roster ne contient AUCUN de ces noms. Sert à ne jamais laisser un appareil réinitialisé
+// écraser les vraies données — et à laisser un appareil sain RÉPARER un serveur écrasé.
+const BOOTSTRAP_NAMES = new Set(['Alex','Jordan','Morgan','Taylor','Casey','Riley','Chris'])
+function looksLikeBootstrap(s) {
+  if (!s || !Array.isArray(s.modules) || s.modules.length === 0) return true
+  const forfait = s.modules.find(m => (m.type || 'forfaits') === 'forfaits')
+  const players = (forfait && forfait.players) || []
+  if (players.length === 0) return true
+  // Le roster de démarrage contient 7 noms distinctifs (Alex/Jordan/…). On exige au moins
+  // 3 de ces noms pour conclure "données par défaut" (évite tout faux positif sur un vrai
+  // roster qui aurait par hasard un seul de ces prénoms).
+  const n = players.filter(p => BOOTSTRAP_NAMES.has(String(p.name))).length
+  return n >= 3
+}
+
 function mergeObj(b, l, s) {
   if (!s) return l
   if (!l) return s
@@ -160,7 +181,7 @@ export function mergeState(base, local, server) {
 export default function App() {
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
-  const [modules,    setModules]    = useState(() => reconcileModules(saved?.modules || [makeModule(1,'1ère Partie'), makePronoModule(2)]))
+  const [modules,    setModules]    = useState(() => reconcileModules(saved?.modules || [makeModule(1,'Préparation Mondiale'), makePronoModule(2)]))
   const [coaches,    setCoaches]    = useState(() => saved?.coaches  || BASE_COACHES)
   const [activeMod,  setActiveMod]  = useState(() => saved?.activeMod || 1)
   const [tab,        setTab]        = useState('module')
@@ -227,7 +248,8 @@ export default function App() {
 
   // Fusionne notre état avec les éventuelles modifs concurrentes du serveur (anti-écrasement).
   const mergeForWrite = useCallback((m, c) => {
-    if (baseRef.current && serverRef.current && _diff(serverRef.current.modules, baseRef.current.modules)) {
+    if (baseRef.current && serverRef.current && !looksLikeBootstrap(serverRef.current) &&
+        _diff(serverRef.current.modules, baseRef.current.modules)) {
       const merged = mergeState(baseRef.current, { modules: m, coaches: c }, serverRef.current)
       return { modules: reconcileModules(merged.modules), coaches: merged.coaches }
     }
@@ -237,6 +259,9 @@ export default function App() {
   // Écrit immédiatement l'état courant sur Firebase (réparation / restauration), avec horodatage neuf
   const forcePush = useCallback(() => {
     const { modules: m0, coaches: c0, activeMod: am } = stateRef.current
+    // Sécurité : si NOTRE état ressemble aux données par défaut alors que le serveur a de
+    // vraies données, on ne pousse RIEN (on n'écrase jamais les vraies données par du vide).
+    if (looksLikeBootstrap({ modules: m0, coaches: c0 }) && serverRef.current && !looksLikeBootstrap(serverRef.current)) return
     const { modules: m, coaches: c } = mergeForWrite(m0, c0)
     if (_diff(m, m0)) { mergeReflect.current = true; setModules(m) }
     if (_diff(c, c0)) { setCoaches(c) }
@@ -322,6 +347,16 @@ export default function App() {
           return
         }
 
+        // 2bis) RÉCUPÉRATION : le serveur a été RÉINITIALISÉ (données par défaut / vidées) par
+        //       erreur, mais NOUS avons les vraies données → on restaure le serveur au lieu
+        //       d'adopter le vide. (Un appareil sain répare automatiquement tout le monde.)
+        if (looksLikeBootstrap({ modules: d.modules, coaches: d.coaches }) &&
+            !looksLikeBootstrap(stateRef.current)) {
+          hydrated.current = true
+          forcePush()
+          return
+        }
+
         // 3) Le serveur est plus récent → on l'applique.
         //    Si la synchro temps réel est désactivée, on n'applique PAS les mises à jour
         //    en direct après le 1er chargement (on garde notre écran stable).
@@ -373,6 +408,8 @@ export default function App() {
 
     // Firebase : seulement après avoir reçu l'état serveur (évite d'écraser les vraies données)
     if (isConfigured && db && hydrated.current) {
+      // Ne jamais écrire des données par défaut/vides par-dessus de vraies données serveur.
+      if (looksLikeBootstrap({ modules: outM, coaches: outC }) && serverRef.current && !looksLikeBootstrap(serverRef.current)) return
       lastLocalEdit.current = now
       lastAcceptedAt.current = now
       if (saveTimer.current) clearTimeout(saveTimer.current)
