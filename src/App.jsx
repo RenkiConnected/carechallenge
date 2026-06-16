@@ -41,17 +41,36 @@ const PART2_SETTINGS = {
 }
 
 // Préréglage du match France–Sénégal (pronostic de la PHASE DE GROUPE).
-// Alimente la Phase de Poules (feeds:'poules'). Remplissable du 15/06 au 16/06 20h59.
+// Alimente la Phase de Poules (feeds:'poules'). Remplissable le 16/06 de 09h00 à 21h50.
 const SENEGAL_SETTINGS = {
   pronoBonus: 20, feeds: 'poules',
   homeFlag: '🇫🇷', homeName: 'FRANCE', homeCode: 'FRA',
   awayFlag: '🇸🇳', awayName: 'SÉNÉGAL', awayCode: 'SEN',
   matchLabel: 'FRANCE VS SÉNÉGAL',
-  window: { from: '2026-06-16T09:00:00', to: '2026-06-16T20:59:59' },
+  window: { from: '2026-06-16T09:00:00', to: '2026-06-16T21:50:00' },
 }
 
-function loadLocal() { try { const r = localStorage.getItem('fc2026_v5'); return r ? JSON.parse(r) : null } catch { return null } }
-function saveLocal(d) { try { localStorage.setItem('fc2026_v5', JSON.stringify(d)) } catch {} }
+// Chargement local : si la clé principale a été vidée/réinitialisée, on récupère
+// automatiquement la DERNIÈRE bonne sauvegarde locale (filet de secours par appareil).
+function loadLocal() {
+  try {
+    const r = localStorage.getItem('fc2026_v5')
+    const main = r ? JSON.parse(r) : null
+    if (main && !looksLikeBootstrap(main)) return main
+    const g = localStorage.getItem('fc2026_v5_good')
+    const good = g ? JSON.parse(g) : null
+    if (good && !looksLikeBootstrap(good)) return good
+    return main
+  } catch { return null }
+}
+// Sauvegarde locale : on garde TOUJOURS en plus une copie de la dernière VRAIE donnée
+// (non par défaut) — elle ne sera jamais remplacée par du vide.
+function saveLocal(d) {
+  try {
+    localStorage.setItem('fc2026_v5', JSON.stringify(d))
+    if (d && !looksLikeBootstrap(d)) localStorage.setItem('fc2026_v5_good', JSON.stringify(d))
+  } catch {}
+}
 
 // ── ROSTER GLOBAL : les joueurs sont PARTAGÉS sur toutes les parties ───────────
 // La SOURCE DE VÉRITÉ = la 1ère partie "forfaits" (celle gérée dans le Manager).
@@ -106,10 +125,10 @@ function reconcileModules(modules) {
     if (settings && settings.phase === 'poules' && settings.unit === 'ligne') settings = { ...settings, unit: 'forfait' }
     // Migration : la phase de poules va jusqu'au 24 juin (et non 27 juillet)
     if (settings && settings.phase === 'poules' && settings.bannerDates && /JUILLET/i.test(settings.bannerDates)) settings = { ...settings, bannerDates: "JUSQU'AU 24 JUIN 2026" }
-    // Migration : créneau du pronostic France–Sénégal = 16 juin 09h00 → 20h59
+    // Migration : créneau du pronostic France–Sénégal = 16 juin 09h00 → 21h50
     if (settings && settings.feeds === 'poules' && settings.window &&
-        (settings.window.from !== '2026-06-16T09:00:00' || settings.window.to !== '2026-06-16T20:59:59'))
-      settings = { ...settings, window: { from: '2026-06-16T09:00:00', to: '2026-06-16T20:59:59' } }
+        (settings.window.from !== '2026-06-16T09:00:00' || settings.window.to !== '2026-06-16T21:50:00'))
+      settings = { ...settings, window: { from: '2026-06-16T09:00:00', to: '2026-06-16T21:50:00' } }
     // Migration : la 1ère partie s'appelle "Préparation Mondiale"
     let name = m.name
     if (m.id === canonId && (name === '1ère Partie' || name === '1ere Partie')) name = 'Préparation Mondiale'
