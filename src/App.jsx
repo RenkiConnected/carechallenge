@@ -94,10 +94,12 @@ function canonicalModule(modules) {
 }
 
 // Liste de référence des joueurs (identité), issue du module canonique
-function buildRoster(modules) {
+function buildRoster(modules, deletedIds = []) {
+  const dead = new Set(deletedIds)
   const canon = canonicalModule(modules)
   const map = new Map()
   ;(canon?.players || []).forEach(p => {
+    if (dead.has(p.id)) return // joueur supprimé (pierre tombale) → jamais dans le roster
     if (!map.has(p.id)) map.set(p.id, { id: p.id, name: p.name, color: p.color, x: p.x, y: p.y })
   })
   return map
@@ -105,9 +107,10 @@ function buildRoster(modules) {
 
 // Force CHAQUE partie à contenir exactement le roster (ajoute manquants, retire orphelins,
 // synchronise nom + couleur). Conserve les données par-partie des joueurs déjà présents.
-function reconcileModules(modules) {
+// deletedIds = pierres tombales : ces joueurs sont retirés PARTOUT, même s'ils réapparaissent.
+function reconcileModules(modules, deletedIds = []) {
   if (!modules || !modules.length) return modules
-  const roster = buildRoster(modules)
+  const roster = buildRoster(modules, deletedIds)
   if (!roster.size) return modules
   const canonId = (modules.find(m => (m.type || 'forfaits') === 'forfaits') || modules[0])?.id
   return modules.map(m => {
@@ -206,13 +209,21 @@ export function mergeState(base, local, server) {
   const modules = (l.modules || []).map(lm => { seen.add(lm.id); return mergeModule(bM.get(lm.id), lm, sM.get(lm.id)) })
   ;(s.modules || []).forEach(sm => { if (!seen.has(sm.id)) modules.push(sm) }) // module ajouté ailleurs
   const coaches = mergeById(b.coaches, l.coaches, s.coaches)
-  return { modules, coaches }
+  // Pierres tombales : UNION des suppressions (local + serveur + base) → une suppression
+  // faite n'importe où n'est JAMAIS perdue, et le joueur reste supprimé partout.
+  const deleted = [...new Set([...(b.deleted || []), ...(l.deleted || []), ...(s.deleted || [])])]
+  return { modules, coaches, deleted }
 }
 
 export default function App() {
+  const APP_VERSION = 'v7 · suppression définitive' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
-  const [modules,    setModules]    = useState(() => reconcileModules(saved?.modules || [makeModule(1,'Préparation Mondiale'), makePronoModule(2)]))
+  // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
+  const [deleted, setDeleted] = useState(() => saved?.deleted || [])
+  const deletedRef = useRef(deleted)
+  useEffect(() => { deletedRef.current = deleted }, [deleted])
+  const [modules,    setModules]    = useState(() => reconcileModules(saved?.modules || [makeModule(1,'Préparation Mondiale'), makePronoModule(2)], saved?.deleted || []))
   const [coaches,    setCoaches]    = useState(() => saved?.coaches  || BASE_COACHES)
   const [activeMod,  setActiveMod]  = useState(() => saved?.activeMod || 1)
   const [tab,        setTab]        = useState('module')
@@ -352,21 +363,22 @@ export default function App() {
   const hydrated = useRef(false)
   const savedTs = saved?.updatedAt || 0
   // Ancêtre commun (dernier état synchronisé) et dernier état serveur connu — pour la fusion 3-way.
-  const baseRef = useRef(saved ? { modules: saved.modules, coaches: saved.coaches } : null)
+  const baseRef = useRef(saved ? { modules: saved.modules, coaches: saved.coaches, deleted: saved.deleted || [] } : null)
   const serverRef = useRef(null)
   const mergeReflect = useRef(false)
   // Snapshot de l'état courant (pour pousser/réparer le serveur)
-  const stateRef = useRef({ modules, coaches, activeMod })
-  useEffect(() => { stateRef.current = { modules, coaches, activeMod } }, [modules, coaches, activeMod])
+  const stateRef = useRef({ modules, coaches, activeMod, deleted })
+  useEffect(() => { stateRef.current = { modules, coaches, activeMod, deleted } }, [modules, coaches, activeMod, deleted])
 
   // Fusionne notre état avec les éventuelles modifs concurrentes du serveur (anti-écrasement).
   const mergeForWrite = useCallback((m, c) => {
     if (baseRef.current && serverRef.current && !looksLikeBootstrap(serverRef.current) &&
         _diff(serverRef.current.modules, baseRef.current.modules)) {
-      const merged = mergeState(baseRef.current, { modules: m, coaches: c }, serverRef.current)
-      return { modules: reconcileModules(merged.modules), coaches: merged.coaches }
+      const merged = mergeState(baseRef.current, { modules: m, coaches: c, deleted: deletedRef.current }, serverRef.current)
+      if (_diff(merged.deleted || [], deletedRef.current || [])) setDeleted(merged.deleted)
+      return { modules: reconcileModules(merged.modules, merged.deleted), coaches: merged.coaches, deleted: merged.deleted }
     }
-    return { modules: m, coaches: c }
+    return { modules: m, coaches: c, deleted: deletedRef.current }
   }, [])
 
   // Écrit immédiatement l'état courant sur Firebase (réparation / restauration), avec horodatage neuf
@@ -382,7 +394,7 @@ export default function App() {
     const now = Date.now()
     lastLocalEdit.current = now
     lastAcceptedAt.current = now
-    const data = { modules: m, coaches: c, activeMod: am, updatedAt: now, clientId: clientId.current }
+    const data = { modules: m, coaches: c, deleted: deletedRef.current, activeMod: am, updatedAt: now, clientId: clientId.current }
     saveLocal(data)
     if (isConfigured && db) {
       if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -392,8 +404,8 @@ export default function App() {
 
   // Sauvegarde : télécharge un fichier JSON de toutes les données
   const exportData = useCallback(() => {
-    const { modules: m, coaches: c, activeMod: am } = stateRef.current
-    const blob = new Blob([JSON.stringify({ modules: m, coaches: c, activeMod: am, updatedAt: Date.now() }, null, 2)], { type: 'application/json' })
+    const { modules: m, coaches: c, activeMod: am, deleted: dl } = stateRef.current
+    const blob = new Blob([JSON.stringify({ modules: m, coaches: c, deleted: dl, activeMod: am, updatedAt: Date.now() }, null, 2)], { type: 'application/json' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = `care-challenges-sauvegarde-${new Date().toISOString().slice(0,10)}.json`
@@ -407,13 +419,15 @@ export default function App() {
     let mods = obj.modules
     // Garantir la présence de la 2ème partie (Phase de poules) même si la sauvegarde est ancienne
     if (!mods.some(m => m.settings?.phase === 'poules')) {
-      const roster = buildRoster(mods)
+      const roster = buildRoster(mods, Array.isArray(obj.deleted) ? obj.deleted : [])
       const players = roster.size
         ? [...roster.values()].map(r => ({ id:r.id, name:r.name, color:r.color, x:r.x ?? 50, y:r.y ?? 50, goals:0, extraSlots:0 }))
         : []
       mods = [...mods, { id: uniqueId(), name:'2ème Partie', type:'forfaits', players, settings:{ ...PART2_SETTINGS } }]
     }
-    setModules(reconcileModules(mods))
+    const dl = Array.isArray(obj.deleted) ? obj.deleted : []
+    if (dl.length) setDeleted(dl)
+    setModules(reconcileModules(mods, dl))
     if (obj.coaches) setCoaches(obj.coaches)
     if (obj.activeMod) setActiveMod(obj.activeMod)
     setGotRemote(true)
@@ -441,11 +455,11 @@ export default function App() {
         const d = snap.data()
         // On mémorise TOUJOURS le dernier état serveur connu (même si on ne l'applique
         // pas à l'écran) pour pouvoir fusionner sans rien écraser au moment d'écrire.
-        serverRef.current = { modules: d.modules, coaches: d.coaches }
+        serverRef.current = { modules: d.modules, coaches: d.coaches, deleted: d.deleted || [] }
 
         // 1) Notre propre écriture qui revient → on ignore (et le serveur = notre nouvel ancêtre).
         if (d.clientId && d.clientId === clientId.current) {
-          baseRef.current = { modules: d.modules, coaches: d.coaches }
+          baseRef.current = { modules: d.modules, coaches: d.coaches, deleted: d.deleted || [] }
           lastAcceptedAt.current = d.updatedAt || lastAcceptedAt.current
           if ((d.updatedAt || 0) >= lastLocalEdit.current) lastLocalEdit.current = 0
           hydrated.current = true
@@ -473,13 +487,24 @@ export default function App() {
         // 3) Le serveur a du nouveau.
         // 3a) PREMIER état serveur (pas encore hydraté) → on l'adopte tel quel.
         if (!hydrated.current) {
+          // Pierres tombales : on UNIT nos suppressions locales avec celles du serveur.
+          const dl = [...new Set([...(deletedRef.current || []), ...((d.deleted) || [])])]
+          if (_diff(dl, deletedRef.current || [])) setDeleted(dl)
           applyingRemote.current = true
           if (saveTimer.current) clearTimeout(saveTimer.current)
-          const reconciled0 = d.modules ? reconcileModules(d.modules) : null
+          const reconciled0 = d.modules ? reconcileModules(d.modules, dl) : null
           if (reconciled0) setModules(reconciled0)
           if (d.coaches) setCoaches(d.coaches)
-          baseRef.current = { modules: reconciled0 || d.modules, coaches: d.coaches }
+          baseRef.current = { modules: reconciled0 || d.modules, coaches: d.coaches, deleted: dl }
           setGotRemote(true); lastAcceptedAt.current = ts; hydrated.current = true
+          // Si une pierre tombale a retiré un joueur encore présent côté serveur (repoussé par un
+          // autre appareil / ancienne version) → on CORRIGE immédiatement le serveur.
+          if (reconciled0 && _diff(reconciled0, reconcileModules(d.modules, []))) {
+            const now = Date.now(); lastLocalEdit.current = now; lastAcceptedAt.current = now
+            const data = { modules: reconciled0, coaches: d.coaches, deleted: dl, activeMod: stateRef.current.activeMod, updatedAt: now, clientId: clientId.current }
+            saveLocal(data)
+            if (isConfigured && db) setDoc(doc(db, 'challenge', 'state'), data).catch(() => {})
+          }
           return
         }
         // 3b) Synchro live OFF ou fiche joueur ouverte → on garde l'écran stable.
@@ -489,9 +514,10 @@ export default function App() {
         // 3c) FUSION À LA LECTURE : on combine l'état serveur avec NOS ajouts locaux pas encore
         //     sauvegardés (délai de sauvegarde). On ne perd ainsi JAMAIS un forfait en cours.
         const localNow = stateRef.current
-        const merged = mergeState(baseRef.current, localNow, { modules: d.modules, coaches: d.coaches })
-        const reconciled = reconcileModules(merged.modules)
-        const haveLocalEdits = _diff(reconciled, reconcileModules(d.modules)) || _diff(merged.coaches || [], d.coaches || [])
+        const merged = mergeState(baseRef.current, localNow, { modules: d.modules, coaches: d.coaches, deleted: d.deleted || [] })
+        if (_diff(merged.deleted || [], deletedRef.current || [])) setDeleted(merged.deleted)
+        const reconciled = reconcileModules(merged.modules, merged.deleted)
+        const haveLocalEdits = _diff(reconciled, reconcileModules(d.modules, d.deleted || [])) || _diff(merged.coaches || [], d.coaches || [])
         applyingRemote.current = true
         if (saveTimer.current) clearTimeout(saveTimer.current)
         setModules(reconciled)
@@ -501,11 +527,10 @@ export default function App() {
         lastAcceptedAt.current = ts
         hydrated.current = true
         if (haveLocalEdits) {
-          // Nos ajouts n'étaient pas encore sur le serveur → on POUSSE le résultat fusionné
-          // (serveur + nos ajouts) pour qu'ils ne soient jamais perdus.
+          // Nos ajouts/suppressions n'étaient pas encore sur le serveur → on POUSSE le résultat fusionné.
           const now = Date.now()
           lastLocalEdit.current = now; lastAcceptedAt.current = now
-          const data = { modules: reconciled, coaches: merged.coaches || [], activeMod: stateRef.current.activeMod, updatedAt: now, clientId: clientId.current }
+          const data = { modules: reconciled, coaches: merged.coaches || [], deleted: merged.deleted || [], activeMod: stateRef.current.activeMod, updatedAt: now, clientId: clientId.current }
           saveLocal(data)
           setDoc(doc(db,'challenge','state'), data).catch(e => { setFbError(e.code||''); setFbStatus('offline') })
         }
@@ -535,7 +560,7 @@ export default function App() {
     }
 
     const now = Date.now()
-    const data = { modules: outM, coaches: outC, activeMod: am, updatedAt: now, clientId: clientId.current }
+    const data = { modules: outM, coaches: outC, deleted: deletedRef.current || [], activeMod: am, updatedAt: now, clientId: clientId.current }
     // baseRef n'avance QUE sur confirmation serveur (echo) — pas de façon optimiste,
     // sinon la fusion suivante croirait que notre ajout fait déjà partie de la base et le perdrait.
     saveLocal(data) // localStorage : toujours (sauvegarde locale immédiate)
@@ -553,7 +578,7 @@ export default function App() {
     }
   }, [mergeForWrite])
 
-  useEffect(() => { persist(modules, coaches, activeMod) }, [modules, coaches, activeMod, persist])
+  useEffect(() => { persist(modules, coaches, activeMod) }, [modules, coaches, activeMod, deleted, persist])
 
   // Création AUTOMATIQUE de la 2ème partie (Phase de poules), une seule fois, après synchro
   const p2Done = useRef(false)
@@ -707,6 +732,9 @@ export default function App() {
   // Retire le joueur de TOUTES les parties
   const removePlayer = useCallback((id) => {
     if (!dashAuthRef.current) return // suppression réservée au Manager
+    // Pierre tombale : on enregistre l'id supprimé pour qu'il ne réapparaisse JAMAIS,
+    // même si un autre appareil (ou une ancienne version) le repousse.
+    setDeleted(prev => prev.includes(id) ? prev : [...prev, id])
     setModules(prev => prev.map(m => ({
       ...m,
       players: m.players.filter(p => p.id !== id),
@@ -829,7 +857,7 @@ export default function App() {
   // ── Gestion modules ───────────────────────────────────────────────────────
   // Une nouvelle partie reprend automatiquement TOUS les joueurs existants (roster global)
   const playersFromRoster = (prev, type) => {
-    const roster = buildRoster(prev)
+    const roster = buildRoster(prev, deletedRef.current)
     if (!roster.size) return (type === 'pronostic' ? makePronoModule(0) : makeModule(0, '')).players
     return [...roster.values()].map(r => ({
       id: r.id, name: r.name, color: r.color,
@@ -995,6 +1023,10 @@ service cloud.firestore {
               <span style={{ color:fbStatus==='ok'?'#2ecc71':fbStatus==='offline'?'#e74c3c':'#ffd700', fontSize:'1rem' }}>●</span>
               <span className="fb-dot-label">{fbStatus==='ok'?'EN LIGNE':fbStatus==='offline'?'LOCAL ⚠':'...'}</span>
             </div>
+            <span title="Version installée — sert à vérifier que la dernière mise à jour est bien en ligne"
+              style={{ fontSize:'.62rem', fontWeight:700, letterSpacing:'.3px', color:'rgba(255,255,255,.45)', padding:'2px 6px', border:'1px solid rgba(255,255,255,.12)', borderRadius:6, whiteSpace:'nowrap' }}>
+              {APP_VERSION}
+            </span>
             <div className="user-pill" title={currentUser?.manager ? 'Connecté en Manager (accès complet)' : 'Tu ne peux modifier que tes propres points'}>
               <span className="user-pill-name">{currentUser?.manager ? '🔧 Manager' : `👤 ${currentUser?.name}`}</span>
               <button className="user-logout" onClick={logout} title="Se déconnecter">Déconnexion</button>
