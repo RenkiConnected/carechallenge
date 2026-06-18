@@ -5,6 +5,7 @@ import Fireworks from './components/Fireworks'
 import Leaderboard from './components/Leaderboard'
 import Rules from './components/Rules'
 import Dashboard from './components/Dashboard'
+import Login from './components/Login'
 import WorldCupCountdown, { GROUP_PHASE_TS } from './components/WorldCupCountdown'
 import { getCurrentTier, getTierRate, DEFAULT_SETTINGS } from './utils/bonus'
 import { db, isConfigured, doc, setDoc, onSnapshot } from './firebase'
@@ -210,6 +211,41 @@ export default function App() {
   const selectedIdRef = useRef(null)
   useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
   const [dashAuth,   setDashAuth]   = useState(false)
+  // Connexion : qui utilise l'appli (null = page de connexion). NON persisté →
+  // on revient toujours à la connexion au rechargement (anti-écrasement par session figée).
+  const [currentUser, setCurrentUser] = useState(null)
+  const currentUserRef = useRef(null)
+  useEffect(() => { currentUserRef.current = currentUser }, [currentUser])
+  const dashAuthRef = useRef(false)
+  useEffect(() => { dashAuthRef.current = dashAuth }, [dashAuth])
+  // Droit d'édition : le Manager peut tout ; un joueur ne modifie QUE ses propres points.
+  const mayEdit = (id) => dashAuthRef.current || (currentUserRef.current && !currentUserRef.current.manager && currentUserRef.current.id === id)
+  const canEditUI = (id) => dashAuth || (currentUser && !currentUser.manager && currentUser.id === id)
+
+  // Déconnexion automatique : retour à la page de connexion après 2 min d'inactivité,
+  // ou dès qu'on quitte/masque la page. Évite qu'une session figée ne réécrase des données.
+  const logout = useCallback(() => { setCurrentUser(null); setDashAuth(false); setSelectedId(null) }, [])
+  const idleTimer = useRef(null)
+  const resetIdle = useCallback(() => {
+    if (idleTimer.current) clearTimeout(idleTimer.current)
+    idleTimer.current = setTimeout(() => logout(), 120000) // 2 minutes
+  }, [logout])
+  useEffect(() => {
+    if (!currentUser) { if (idleTimer.current) clearTimeout(idleTimer.current); return }
+    resetIdle()
+    const onAct = () => resetIdle()
+    const evs = ['pointerdown', 'keydown', 'touchstart', 'scroll']
+    evs.forEach(e => window.addEventListener(e, onAct, { passive: true }))
+    const onVis = () => { if (document.hidden) logout() }
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('pagehide', logout)
+    return () => {
+      evs.forEach(e => window.removeEventListener(e, onAct))
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('pagehide', logout)
+      if (idleTimer.current) clearTimeout(idleTimer.current)
+    }
+  }, [currentUser, resetIdle, logout])
   const [fbStatus,   setFbStatus]   = useState('connecting')
   const [fbError,    setFbError]    = useState('')
   // Synchro temps réel : ACTIVÉE par défaut pour que les points de chacun s'additionnent
@@ -284,7 +320,7 @@ export default function App() {
     const { modules: m, coaches: c } = mergeForWrite(m0, c0)
     if (_diff(m, m0)) { mergeReflect.current = true; setModules(m) }
     if (_diff(c, c0)) { setCoaches(c) }
-    baseRef.current = { modules: m, coaches: c }
+    // baseRef n'avance QUE sur confirmation serveur (echo) — jamais de façon optimiste.
     const now = Date.now()
     lastLocalEdit.current = now
     lastAcceptedAt.current = now
@@ -376,25 +412,45 @@ export default function App() {
           return
         }
 
-        // 3) Le serveur est plus récent → on l'applique.
-        //    Si la synchro temps réel est désactivée, on n'applique PAS les mises à jour
-        //    en direct après le 1er chargement (on garde notre écran stable).
-        if (hydrated.current && !liveSyncRef.current) { return }
-        // Si une fiche joueur est ouverte (on est en train d'ajouter des points),
-        // on ne ré-applique pas une mise à jour distante pour ne pas faire buguer les clics.
-        if (hydrated.current && selectedIdRef.current != null) { return }
+        // 3) Le serveur a du nouveau.
+        // 3a) PREMIER état serveur (pas encore hydraté) → on l'adopte tel quel.
+        if (!hydrated.current) {
+          applyingRemote.current = true
+          if (saveTimer.current) clearTimeout(saveTimer.current)
+          const reconciled0 = d.modules ? reconcileModules(d.modules) : null
+          if (reconciled0) setModules(reconciled0)
+          if (d.coaches) setCoaches(d.coaches)
+          baseRef.current = { modules: reconciled0 || d.modules, coaches: d.coaches }
+          setGotRemote(true); lastAcceptedAt.current = ts; hydrated.current = true
+          return
+        }
+        // 3b) Synchro live OFF ou fiche joueur ouverte → on garde l'écran stable.
+        //     (Aucune perte : la fusion à l'écriture combinera nos ajouts au moment de sauvegarder.)
+        if (!liveSyncRef.current) return
+        if (selectedIdRef.current != null) return
+        // 3c) FUSION À LA LECTURE : on combine l'état serveur avec NOS ajouts locaux pas encore
+        //     sauvegardés (délai de sauvegarde). On ne perd ainsi JAMAIS un forfait en cours.
+        const localNow = stateRef.current
+        const merged = mergeState(baseRef.current, localNow, { modules: d.modules, coaches: d.coaches })
+        const reconciled = reconcileModules(merged.modules)
+        const haveLocalEdits = _diff(reconciled, reconcileModules(d.modules)) || _diff(merged.coaches || [], d.coaches || [])
         applyingRemote.current = true
         if (saveTimer.current) clearTimeout(saveTimer.current)
-        const remoteMods = d.modules ? reconcileModules(d.modules) : null
-        if (remoteMods) setModules(remoteMods)
-        if (d.coaches)  setCoaches(d.coaches)
-        // On vient d'adopter l'état serveur → c'est notre nouvel ancêtre commun.
-        baseRef.current = { modules: remoteMods || (d.modules), coaches: d.coaches }
-        // La navigation (partie/onglet active) est LOCALE à chaque personne :
-        // on n'applique JAMAIS l'activeMod d'un autre utilisateur (sinon l'écran saute).
+        setModules(reconciled)
+        setCoaches(merged.coaches || [])
+        // baseRef n'avance QUE sur confirmation serveur (echo) — pas ici.
         setGotRemote(true)
         lastAcceptedAt.current = ts
         hydrated.current = true
+        if (haveLocalEdits) {
+          // Nos ajouts n'étaient pas encore sur le serveur → on POUSSE le résultat fusionné
+          // (serveur + nos ajouts) pour qu'ils ne soient jamais perdus.
+          const now = Date.now()
+          lastLocalEdit.current = now; lastAcceptedAt.current = now
+          const data = { modules: reconciled, coaches: merged.coaches || [], activeMod: stateRef.current.activeMod, updatedAt: now, clientId: clientId.current }
+          saveLocal(data)
+          setDoc(doc(db,'challenge','state'), data).catch(e => { setFbError(e.code||''); setFbStatus('offline') })
+        }
       },
       err => { console.warn('[FB]', err.code, err.message); setFbError(err.code || err.message || ''); setFbStatus('offline') }
     )
@@ -422,7 +478,8 @@ export default function App() {
 
     const now = Date.now()
     const data = { modules: outM, coaches: outC, activeMod: am, updatedAt: now, clientId: clientId.current }
-    baseRef.current = { modules: outM, coaches: outC } // notre nouvel ancêtre commun
+    // baseRef n'avance QUE sur confirmation serveur (echo) — pas de façon optimiste,
+    // sinon la fusion suivante croirait que notre ajout fait déjà partie de la base et le perdrait.
     saveLocal(data) // localStorage : toujours (sauvegarde locale immédiate)
 
     // Firebase : seulement après avoir reçu l'état serveur (évite d'écraser les vraies données)
@@ -523,6 +580,8 @@ export default function App() {
   const updatePerson = useCallback((id, updates) => {
     const keys = Object.keys(updates)
     const isGlobal = keys.length > 0 && keys.every(k => GLOBAL_FIELDS.includes(k))
+    // Nom/couleur = réservé au Manager ; le reste (points, pronostics) = soi-même ou Manager.
+    if (isGlobal ? !dashAuthRef.current : !mayEdit(id)) return
     if (isGlobal) {
       // nom / couleur → toutes les parties
       setModules(prev => prev.map(m => ({
@@ -549,6 +608,7 @@ export default function App() {
   }, [setActivePlayers])
 
   const addGoal = useCallback((id, coords) => {
+    if (!mayEdit(id)) return
     setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, goals: (p.goals||0)+1 } : p))
     setCoaches(prev => prev.map(p => p.id === id ? { ...p, goals: (p.goals||0)+1 } : p))
     if (coords) {
@@ -558,11 +618,13 @@ export default function App() {
   }, [setActivePlayers])
 
   const removeGoal = useCallback((id) => {
+    if (!mayEdit(id)) return
     setActivePlayers(prev => prev.map(p => p.id === id && (p.goals||0) > 0 ? { ...p, goals: p.goals-1 } : p))
     setCoaches(prev => prev.map(p => p.id === id && (p.goals||0) > 0 ? { ...p, goals: p.goals-1 } : p))
   }, [setActivePlayers])
 
   const addSlot = useCallback((id) => {
+    if (!mayEdit(id)) return
     setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, extraSlots: (p.extraSlots||0)+1 } : p))
     setCoaches(prev => prev.map(p => p.id === id ? { ...p, extraSlots: (p.extraSlots||0)+1 } : p))
   }, [setActivePlayers])
@@ -599,6 +661,7 @@ export default function App() {
   }
 
   const addPronoBall = useCallback((id) => {
+    if (!mayEdit(id)) return
     setModules(prev => {
       const active = prev.find(m => m.id === activeModRef.current)
       const target = targetForfaitModule(prev, active)
@@ -629,6 +692,7 @@ export default function App() {
   }, [])
 
   const removePronoBall = useCallback((id) => {
+    if (!mayEdit(id)) return
     setModules(prev => {
       const active = prev.find(m => m.id === activeModRef.current)
       const target = targetForfaitModule(prev, active)
@@ -765,6 +829,19 @@ export default function App() {
   const unitU = unit.toUpperCase() + 'S' // FORFAITS / LIGNES
   const progressPct = Math.min(100, Math.round((totalGoals / objective) * 100))
 
+  // ── Porte d'entrée : page de connexion ─────────────────────────────────────
+  if (!currentUser) {
+    const rosterPlayers = (modules.find(m => (m.type || 'forfaits') === 'forfaits') || modules[0])?.players || []
+    return (
+      <Login
+        players={rosterPlayers}
+        coaches={coaches}
+        onPick={(p) => setCurrentUser({ id: p.id, name: p.name, isCoach: !!p.isCoach })}
+        onManager={(pw) => { if (pw === 'Raphael2232') { setCurrentUser({ manager: true, name: 'Manager' }); setDashAuth(true); return true } return false }}
+      />
+    )
+  }
+
   return (
     <div className="app">
       <WorldCupCountdown
@@ -838,6 +915,10 @@ service cloud.firestore {
             <div className="fb-dot" title={fbStatus==='ok'?'Données sauvegardées en ligne et partagées':fbStatus==='offline'?'Mode local : données NON partagées/sauvegardées en ligne':'Connexion...'}>
               <span style={{ color:fbStatus==='ok'?'#2ecc71':fbStatus==='offline'?'#e74c3c':'#ffd700', fontSize:'1rem' }}>●</span>
               <span className="fb-dot-label">{fbStatus==='ok'?'EN LIGNE':fbStatus==='offline'?'LOCAL ⚠':'...'}</span>
+            </div>
+            <div className="user-pill" title={currentUser?.manager ? 'Connecté en Manager (accès complet)' : 'Tu ne peux modifier que tes propres points'}>
+              <span className="user-pill-name">{currentUser?.manager ? '🔧 Manager' : `👤 ${currentUser?.name}`}</span>
+              <button className="user-logout" onClick={logout} title="Se déconnecter">Déconnexion</button>
             </div>
           </div>
         </div>
@@ -914,13 +995,13 @@ service cloud.firestore {
       <main className="app-main">
         {tab === 'module' && (
           isProno
-            ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
+            ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} editableId={currentUser?.manager ? '*' : currentUser?.id} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
             : <div className="module-stage">
                 <Fireworks active={totalGoals >= objective} confetti />
                 {totalGoals >= objective && (
                   <div className="objective-badge">🎉 Objectif atteint · {objective} {unitU.toLowerCase()}</div>
                 )}
-                <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} />
+                <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} editableId={currentUser?.manager ? '*' : currentUser?.id} />
               </div>
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}

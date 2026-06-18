@@ -78,7 +78,7 @@ function fmtDay(ts) {
   try { return new Date(ts).toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' }) } catch { return '' }
 }
 
-export default function PronosticModule({ module, players, coaches, dashAuth, onUpdatePerson, onSetResult, onValidateAll, onAddBall, onRemoveBall }) {
+export default function PronosticModule({ module, players, coaches, dashAuth, editableId, onUpdatePerson, onSetResult, onValidateAll, onAddBall, onRemoveBall }) {
   // Les coachs : si le module a son propre stockage (coachData), on l'utilise (pronostic
   // indépendant par match) ; sinon on garde les champs globaux (France–Irlande historique).
   const coachPeople = (module?.coachData !== undefined)
@@ -176,9 +176,12 @@ export default function PronosticModule({ module, players, coaches, dashAuth, on
       </div>
 
       <div className="prono-grid">
-        {allPeople.map(player => (
-          <PlayerPronoCard key={player.id} player={player} onUpdate={onUpdatePerson} onAddBall={onAddBall} onRemoveBall={onRemoveBall} T={T} locked={locked && !dashAuth} />
-        ))}
+        {allPeople.map(player => {
+          const mine = editableId === '*' || editableId === player.id
+          return (
+            <PlayerPronoCard key={player.id} player={player} onUpdate={onUpdatePerson} onAddBall={onAddBall} onRemoveBall={onRemoveBall} T={T} locked={(locked && !dashAuth) || !mine} />
+          )
+        })}
       </div>
 
       {!dashAuth && (

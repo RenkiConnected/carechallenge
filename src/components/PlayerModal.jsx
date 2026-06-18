@@ -3,7 +3,7 @@ import { getPlayerEarnings, getPlayerTotalEarnings, isTopScorer, hasHatTrick, DE
 
 function getInitials(name) { return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
 
-export default function PlayerModal({ player, allPeople, totalGoals, settings, validatedCount = 0, onAddGoal, onRemoveGoal, onAddSlot, onUpdatePerson, onClose }) {
+export default function PlayerModal({ player, allPeople, totalGoals, settings, validatedCount = 0, canEdit = true, onAddGoal, onRemoveGoal, onAddSlot, onUpdatePerson, onClose }) {
   const [editingName, setEditingName] = useState(false)
   const [nameVal, setNameVal] = useState(player.name)
   const [lastFilled, setLastFilled] = useState(null)
@@ -22,6 +22,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
   const balls = Array.from({ length: displaySlots }, (_, i) => i)
 
   const handleBallClick = (idx, e) => {
+    if (!canEdit) return
     const rect = e.currentTarget.getBoundingClientRect()
     if (idx < player.goals) {
       onRemoveGoal(player.id)
@@ -96,7 +97,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
 
         {/* Voting balls */}
         <div className="balls-section">
-          <div className="balls-title">⚽ Cliquer pour enregistrer un{unit==="ligne"?"e ligne":" forfait"}</div>
+          <div className="balls-title">{canEdit ? `⚽ Cliquer pour enregistrer un${unit==="ligne"?"e ligne":" forfait"}` : '🔒 Lecture seule — ce ne sont pas tes points'}</div>
           <div className="balls-grid">
             {balls.map((_, i) => {
               const filled = i < player.goals
@@ -105,12 +106,13 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
                 <button key={i}
                   className={`goal-ball ${filled ? 'filled' : 'empty'}`}
                   onClick={e => handleBallClick(i, e)}
-                  title={filled ? 'Cliquer pour annuler' : 'Enregistrer'}
+                  disabled={!canEdit}
+                  title={!canEdit ? 'Lecture seule' : filled ? 'Cliquer pour annuler' : 'Enregistrer'}
                   style={isNew ? { animation:'fill-ball .4s cubic-bezier(.34,1.56,.64,1)' } : {}}
                 >⚽</button>
               )
             })}
-            <button className="add-ball-btn" onClick={() => onAddSlot(player.id)} title="Ajouter un emplacement">+</button>
+            {canEdit && <button className="add-ball-btn" onClick={() => onAddSlot(player.id)} title="Ajouter un emplacement">+</button>}
           </div>
         </div>
 
