@@ -229,7 +229,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v10 · mobile OK' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v12 · onglets visibles PC+mobile' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -615,29 +615,29 @@ export default function App() {
   const senDone = useRef(false)
   useEffect(() => {
     if (senDone.current) return
-    if (isConfigured && db && !hydrated.current && fbStatus === 'connecting') return
-    const hasSen = modules.some(m => m.type === 'pronostic' && m.settings?.feeds === 'poules')
-    if (hasSen || localStorage.getItem('fc2026_sen') === 'done') { senDone.current = true; return }
-    // on attend que la Phase de Poules existe pour que le pronostic puisse l'alimenter
-    if (!modules.some(m => m.settings?.phase === 'poules')) return
+    // On attend d'avoir LU le serveur (sinon on risquerait un doublon avant la synchro).
+    if (isConfigured && db && !hydrated.current) return
+    const hasSen = modules.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'SEN')
+    if (hasSen) { senDone.current = true; return } // déjà présent → rien à faire
+    if (!modules.some(m => m.settings?.phase === 'poules')) return // attend la Phase de Poules
     senDone.current = true
     localStorage.setItem('fc2026_sen', 'done')
     const nid = uniqueId()
     setModules(prev => {
-      if (prev.some(m => m.type === 'pronostic' && m.settings?.feeds === 'poules')) return prev
+      if (prev.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'SEN')) return prev
       const players = playersFromRoster(prev, 'pronostic')
       return [...prev, { id: nid, name: 'France - Sénégal', type: 'pronostic', players, coachData: {}, settings: { ...SENEGAL_SETTINGS } }]
     })
   }, [modules, fbStatus])
 
   // Création AUTOMATIQUE du pronostic France–Irak (phase de groupe → alimente la Phase de Poules).
-  // Détecté spécifiquement par l'équipe (IRQ) pour ne pas être confondu avec France–Sénégal.
+  // AUTO-RÉPARANT : si le module a disparu côté serveur, il est RECRÉÉ (après lecture du serveur).
   const irakDone = useRef(false)
   useEffect(() => {
     if (irakDone.current) return
-    if (isConfigured && db && !hydrated.current && fbStatus === 'connecting') return
+    if (isConfigured && db && !hydrated.current) return // attend la lecture serveur (anti-doublon)
     const hasIrak = modules.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'IRQ')
-    if (hasIrak || localStorage.getItem('fc2026_irak') === 'done') { irakDone.current = true; return }
+    if (hasIrak) { irakDone.current = true; return } // déjà présent → rien à faire
     if (!modules.some(m => m.settings?.phase === 'poules')) return // attend la Phase de Poules
     irakDone.current = true
     localStorage.setItem('fc2026_irak', 'done')

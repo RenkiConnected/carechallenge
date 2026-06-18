@@ -383,8 +383,8 @@ input:checked + .toggle-slider::before { transform:translateX(24px); background:
 .header-logo-img { width:clamp(32px,6vw,44px); height:clamp(32px,6vw,44px); border-radius:8px; object-fit:cover; filter:drop-shadow(0 0 8px rgba(0,229,204,.4)); flex-shrink:0; }
 
 /* ───── MODULE TABS BAR ───── */
-.module-tabs-bar { background:rgba(0,0,0,.35); border-bottom:1px solid rgba(255,215,0,.12); overflow:hidden; }
-.module-tabs-scroll { display:flex; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; padding:0 8px; gap:4px; }
+.module-tabs-bar { background:rgba(0,0,0,.35); border-bottom:1px solid rgba(255,215,0,.12); overflow:visible; }
+.module-tabs-scroll { display:flex; flex-wrap:wrap; overflow-x:visible; scrollbar-width:none; -ms-overflow-style:none; padding:4px 8px; gap:4px; }
 .module-tabs-scroll::-webkit-scrollbar { display:none; }
 .module-tab { flex-shrink:0; padding:8px 14px; background:transparent; border:none; border-bottom:2px solid transparent; color:var(--text-dim); font-family:var(--font-condensed); font-size:clamp(.75rem,2.2vw,.9rem); font-weight:700; letter-spacing:.5px; cursor:pointer; transition:all .2s; white-space:nowrap; }
 .module-tab:hover { color:var(--text); }
@@ -478,6 +478,12 @@ input:checked + .toggle-slider::before { transform:translateX(24px); background:
 /* ───── MODULE TAB PRONO ───── */
 .module-tab-prono { color:rgba(255,152,0,.8) !important; }
 .module-tab-prono.active { color:#ff9800 !important; border-bottom-color:#ff9800 !important; background:rgba(255,152,0,.06) !important; }
+/* MOBILE : les onglets de parties passent à la ligne → TOUS visibles (rien caché à droite) */
+@media (max-width:767px){
+  .module-tabs-bar { overflow:visible; }
+  .module-tabs-scroll { flex-wrap:wrap; overflow-x:visible; padding:5px 8px; gap:5px; }
+  .module-tab { padding:7px 12px; }
+}
 .add-prono-tab { color:rgba(255,152,0,.7) !important; border-color:rgba(255,152,0,.3) !important; }
 .add-prono-tab:hover { background:rgba(255,152,0,.08) !important; }
 
