@@ -629,12 +629,11 @@ img, svg, canvas { max-width:100%; }
 
 /* Mobile : terrain haut et défilable (on fait défiler pour voir tous les joueurs) */
 @media (max-width:767px) {
-  /* MOBILE : on laisse défiler TOUTE la page (fini la zone interne à hauteur fixe
-     qui coupait le bas du terrain). La barre d'onglets reste collée en haut. */
-  .app-main { overflow:visible; }
-  .module-stage { overflow:visible; }
-  .pitch-layout { height:auto; min-height:0; overflow:visible; }
-  .pitch-wrapper { flex-direction:column; overflow:visible !important; }
+  /* Le terrain défile DANS sa propre zone (même principe que Classement/Règles/Manager,
+     qui fonctionnent). On ne touche PAS à .app-main : les autres onglets restent intacts. */
+  .module-stage { flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .pitch-layout { height:auto; min-height:0; }
+  .pitch-wrapper { flex-direction:column; }
   .pitch-container { min-height:1340px; padding-bottom:28px; }
   .pitch-players { inset:1% 2% 2.5% 2%; }
   .player-name-tag { max-width:110px; font-size:.8rem; }
