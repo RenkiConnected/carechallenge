@@ -174,9 +174,20 @@ function mergeObj(b, l, s) {
 function mergeById(bArr, lArr, sArr) {
   const b = new Map((bArr || []).map(p => [p.id, p]))
   const s = new Map((sArr || []).map(p => [p.id, p]))
-  const seen = new Set()
-  const out = (lArr || []).map(lp => { seen.add(lp.id); return mergeObj(b.get(lp.id), lp, s.get(lp.id)) })
-  ;(sArr || []).forEach(sp => { if (!seen.has(sp.id)) out.push(sp) }) // ajouté par un autre
+  const lIds = new Set((lArr || []).map(p => p.id))
+  const out = []
+  ;(lArr || []).forEach(lp => {
+    // Présent dans l'ancêtre mais SUPPRIMÉ sur le serveur (par le manager) → on respecte
+    // la suppression (on ne le garde pas). Sinon on fusionne ses champs.
+    if (b.has(lp.id) && !s.has(lp.id)) return
+    out.push(mergeObj(b.get(lp.id), lp, s.get(lp.id)))
+  })
+  ;(sArr || []).forEach(sp => {
+    if (lIds.has(sp.id)) return
+    // Présent serveur, absent en local : s'il était dans l'ancêtre → NOUS l'avons supprimé
+    // → on ne le ré-ajoute pas. Sinon → ajouté par quelqu'un d'autre → on le garde.
+    if (!b.has(sp.id)) out.push(sp)
+  })
   return out
 }
 function mergeModule(b, l, s) {
@@ -218,13 +229,44 @@ export default function App() {
   useEffect(() => { currentUserRef.current = currentUser }, [currentUser])
   const dashAuthRef = useRef(false)
   useEffect(() => { dashAuthRef.current = dashAuth }, [dashAuth])
-  // Droit d'édition : le Manager peut tout ; un joueur ne modifie QUE ses propres points.
-  const mayEdit = (id) => dashAuthRef.current || (currentUserRef.current && !currentUserRef.current.manager && currentUserRef.current.id === id)
+
+  // ── Verrou d'édition (Option 2) : un SEUL éditeur à la fois ──────────────────
+  // Un "jeton" stocké en ligne (challenge/editlock) désigne qui peut modifier.
+  // Les autres sont en lecture seule. Le jeton se libère à la déconnexion ou après
+  // 2 min d'inactivité (et expire seul au bout de 2 min en cas de fermeture brutale).
+  const LOCK_TTL = 125000
+  const [editLock, setEditLock] = useState(null) // { holderId, holderName, ts }
+  const editLockRef = useRef(null)
+  useEffect(() => { editLockRef.current = editLock }, [editLock])
+  const lockFresh = (l) => !!(l && l.holderId && (Date.now() - (l.ts || 0) < LOCK_TTL))
+  // En local (sans serveur) il n'y a qu'un appareil → on peut toujours éditer.
+  const holdsLockRef = () => !isConfigured || !db || (editLockRef.current?.holderId === clientId.current && lockFresh(editLockRef.current))
+  const lockDoc = () => doc(db, 'challenge', 'editlock')
+  const lockName = () => (currentUserRef.current?.manager ? 'Manager' : (currentUserRef.current?.name || '?'))
+  const acquireLock = useCallback(() => {
+    if (!isConfigured || !db || !currentUserRef.current) return
+    const l = { holderId: clientId.current, holderName: lockName(), ts: Date.now() }
+    setEditLock(l) // optimiste : on se considère détenteur tout de suite (évite un clignotement)
+    setDoc(lockDoc(), l).catch(() => {})
+  }, [])
+  const refreshLock = useCallback(() => {
+    if (!isConfigured || !db) return
+    if (editLockRef.current?.holderId === clientId.current)
+      setDoc(lockDoc(), { holderId: clientId.current, holderName: lockName(), ts: Date.now() }).catch(() => {})
+  }, [])
+  const releaseLock = useCallback(() => {
+    if (!isConfigured || !db) return
+    if (editLockRef.current?.holderId === clientId.current)
+      setDoc(lockDoc(), { holderId: '', holderName: '', ts: 0 }).catch(() => {})
+  }, [])
+
+  // Droit d'édition : il faut DÉTENIR le verrou ET (être Manager OU modifier ses propres points).
+  const mayEdit = (id) => holdsLockRef() && (dashAuthRef.current || (currentUserRef.current && !currentUserRef.current.manager && currentUserRef.current.id === id))
   const canEditUI = (id) => dashAuth || (currentUser && !currentUser.manager && currentUser.id === id)
 
   // Déconnexion automatique : retour à la page de connexion après 2 min d'inactivité,
-  // ou dès qu'on quitte/masque la page. Évite qu'une session figée ne réécrase des données.
-  const logout = useCallback(() => { setCurrentUser(null); setDashAuth(false); setSelectedId(null) }, [])
+  // ou dès qu'on quitte/masque la page. Libère aussi le verrou d'édition.
+  const logout = useCallback(() => { releaseLock(); setCurrentUser(null); setDashAuth(false); setSelectedId(null) }, [releaseLock])
   const idleTimer = useRef(null)
   const resetIdle = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current)
@@ -233,9 +275,17 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) { if (idleTimer.current) clearTimeout(idleTimer.current); return }
     resetIdle()
+    // À la connexion : on prend le jeton s'il est libre/périmé (sinon on reste en lecture seule).
+    if (!lockFresh(editLockRef.current) || editLockRef.current?.holderId === clientId.current) acquireLock()
     const onAct = () => resetIdle()
     const evs = ['pointerdown', 'keydown', 'touchstart', 'scroll']
     evs.forEach(e => window.addEventListener(e, onAct, { passive: true }))
+    // Battement de cœur : si on détient le jeton on le rafraîchit ; sinon, s'il est
+    // libre/périmé, on le prend (on devient éditeur quand le précédent part).
+    const hb = setInterval(() => {
+      if (editLockRef.current?.holderId === clientId.current) refreshLock()
+      else if (!lockFresh(editLockRef.current)) acquireLock()
+    }, 20000)
     const onVis = () => { if (document.hidden) logout() }
     document.addEventListener('visibilitychange', onVis)
     window.addEventListener('pagehide', logout)
@@ -243,9 +293,17 @@ export default function App() {
       evs.forEach(e => window.removeEventListener(e, onAct))
       document.removeEventListener('visibilitychange', onVis)
       window.removeEventListener('pagehide', logout)
+      clearInterval(hb)
       if (idleTimer.current) clearTimeout(idleTimer.current)
     }
-  }, [currentUser, resetIdle, logout])
+  }, [currentUser, resetIdle, logout, acquireLock, refreshLock])
+
+  // Abonnement temps réel au jeton d'édition (qui modifie en ce moment).
+  useEffect(() => {
+    if (!isConfigured || !db) return
+    const unsub = onSnapshot(lockDoc(), snap => setEditLock(snap.exists() ? snap.data() : null), () => {})
+    return () => unsub()
+  }, [])
   const [fbStatus,   setFbStatus]   = useState('connecting')
   const [fbError,    setFbError]    = useState('')
   // Synchro temps réel : ACTIVÉE par défaut pour que les points de chacun s'additionnent
@@ -648,7 +706,13 @@ export default function App() {
 
   // Retire le joueur de TOUTES les parties
   const removePlayer = useCallback((id) => {
-    setModules(prev => prev.map(m => ({ ...m, players: m.players.filter(p => p.id !== id) })))
+    if (!dashAuthRef.current) return // suppression réservée au Manager
+    setModules(prev => prev.map(m => ({
+      ...m,
+      players: m.players.filter(p => p.id !== id),
+      coachData: m.coachData ? Object.fromEntries(Object.entries(m.coachData).filter(([k]) => k !== String(id))) : m.coachData,
+    })))
+    setCoaches(prev => prev.filter(p => p.id !== id))
     setSelectedId(sel => sel === id ? null : sel)
   }, [])
 
@@ -842,6 +906,11 @@ export default function App() {
     )
   }
 
+  // État du verrou pour le rendu
+  const holding = !isConfigured || !db || (editLock?.holderId === clientId.current && lockFresh(editLock))
+  const lockedByOther = isConfigured && db && lockFresh(editLock) && editLock?.holderId !== clientId.current
+  const editableId = !holding ? null : (currentUser?.manager ? '*' : currentUser?.id)
+
   return (
     <div className="app">
       <WorldCupCountdown
@@ -849,6 +918,16 @@ export default function App() {
         onDismiss={() => setCdDismissed(true)}
         onExpand={() => setCdDismissed(false)}
       />
+      {lockedByOther ? (
+        <div className="lock-banner locked">
+          <span>🔒 <strong>Modification en cours par {editLock?.holderName || 'quelqu\u2019un'}</strong> — tu es en lecture seule. La main se libère à sa déconnexion ou après 2&nbsp;min d'inactivité.</span>
+          {dashAuth && <button className="lock-take-btn" onClick={acquireLock}>Prendre la main (Manager)</button>}
+        </div>
+      ) : holding && isConfigured && db ? (
+        <div className="lock-banner mine">
+          <span>✏️ <strong>Tu as la main</strong> — tu peux enregistrer tes points. Pense à te déconnecter pour laisser la main aux autres.</span>
+        </div>
+      ) : null}
       {fbStatus === 'offline' && warnLocal && (
         <div className="local-warn-banner">
           <span>🔴 <strong>Mode LOCAL</strong> — les données ne sont PAS partagées ni sauvegardées en ligne (risque de perte si on vide le cache). Pour activer la sauvegarde permanente et le partage entre appareils, applique les règles Firestore.</span>
@@ -995,13 +1074,13 @@ service cloud.firestore {
       <main className="app-main">
         {tab === 'module' && (
           isProno
-            ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} editableId={currentUser?.manager ? '*' : currentUser?.id} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
+            ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} editableId={editableId} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
             : <div className="module-stage">
                 <Fireworks active={totalGoals >= objective} confetti />
                 {totalGoals >= objective && (
                   <div className="objective-badge">🎉 Objectif atteint · {objective} {unitU.toLowerCase()}</div>
                 )}
-                <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} editableId={currentUser?.manager ? '*' : currentUser?.id} />
+                <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} editableId={editableId} />
               </div>
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}
