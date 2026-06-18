@@ -51,6 +51,19 @@ const SENEGAL_SETTINGS = {
   window: { from: '2026-06-16T09:00:00', to: '2026-06-16T21:50:00' },
 }
 
+// Préréglage du match France–Irak (pronostic de la PHASE DE GROUPE).
+// Alimente la Phase de Poules (feeds:'poules'). Deux créneaux distincts :
+//  • Prédiction du score : LUNDI 22 juin, 09h00 → 22h59.
+//  • Dépôt des ballons   : MARDI 23 juin, 09h00 → 20h00.
+const IRAK_SETTINGS = {
+  pronoBonus: 20, feeds: 'poules',
+  homeFlag: '🇫🇷', homeName: 'FRANCE', homeCode: 'FRA',
+  awayFlag: '🇮🇶', awayName: 'IRAK', awayCode: 'IRQ',
+  matchLabel: 'FRANCE VS IRAK',
+  window: { from: '2026-06-22T09:00:00', to: '2026-06-22T22:59:00' },
+  ballWindow: { from: '2026-06-23T09:00:00', to: '2026-06-23T20:00:00' },
+}
+
 // Chargement local : si la clé principale a été vidée/réinitialisée, on récupère
 // automatiquement la DERNIÈRE bonne sauvegarde locale (filet de secours par appareil).
 function loadLocal() {
@@ -129,8 +142,8 @@ function reconcileModules(modules, deletedIds = []) {
     if (settings && settings.phase === 'poules' && settings.unit === 'ligne') settings = { ...settings, unit: 'forfait' }
     // Migration : la phase de poules va jusqu'au 24 juin (et non 27 juillet)
     if (settings && settings.phase === 'poules' && settings.bannerDates && /JUILLET/i.test(settings.bannerDates)) settings = { ...settings, bannerDates: "JUSQU'AU 24 JUIN 2026" }
-    // Migration : créneau du pronostic France–Sénégal = 16 juin 09h00 → 21h50
-    if (settings && settings.feeds === 'poules' && settings.window &&
+    // Migration : créneau du pronostic France–Sénégal = 16 juin 09h00 → 21h50 (UNIQUEMENT ce match)
+    if (settings && settings.feeds === 'poules' && settings.awayCode === 'SEN' && settings.window &&
         (settings.window.from !== '2026-06-16T09:00:00' || settings.window.to !== '2026-06-16T21:50:00'))
       settings = { ...settings, window: { from: '2026-06-16T09:00:00', to: '2026-06-16T21:50:00' } }
     // Migration : la 1ère partie s'appelle "Préparation Mondiale"
@@ -216,7 +229,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v7 · suppression définitive' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v9 · terrain défilable' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -614,6 +627,25 @@ export default function App() {
       if (prev.some(m => m.type === 'pronostic' && m.settings?.feeds === 'poules')) return prev
       const players = playersFromRoster(prev, 'pronostic')
       return [...prev, { id: nid, name: 'France - Sénégal', type: 'pronostic', players, coachData: {}, settings: { ...SENEGAL_SETTINGS } }]
+    })
+  }, [modules, fbStatus])
+
+  // Création AUTOMATIQUE du pronostic France–Irak (phase de groupe → alimente la Phase de Poules).
+  // Détecté spécifiquement par l'équipe (IRQ) pour ne pas être confondu avec France–Sénégal.
+  const irakDone = useRef(false)
+  useEffect(() => {
+    if (irakDone.current) return
+    if (isConfigured && db && !hydrated.current && fbStatus === 'connecting') return
+    const hasIrak = modules.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'IRQ')
+    if (hasIrak || localStorage.getItem('fc2026_irak') === 'done') { irakDone.current = true; return }
+    if (!modules.some(m => m.settings?.phase === 'poules')) return // attend la Phase de Poules
+    irakDone.current = true
+    localStorage.setItem('fc2026_irak', 'done')
+    const nid = uniqueId()
+    setModules(prev => {
+      if (prev.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'IRQ')) return prev
+      const players = playersFromRoster(prev, 'pronostic')
+      return [...prev, { id: nid, name: 'France - Irak', type: 'pronostic', players, coachData: {}, settings: { ...IRAK_SETTINGS } }]
     })
   }, [modules, fbStatus])
   const activeModule  = modules.find(m => m.id === activeMod) || modules[0]

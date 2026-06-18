@@ -629,9 +629,14 @@ img, svg, canvas { max-width:100%; }
 
 /* Mobile : terrain haut et défilable (on fait défiler pour voir tous les joueurs) */
 @media (max-width:767px) {
-  .pitch-wrapper { overflow-y:auto !important; overflow-x:hidden; -webkit-overflow-scrolling:touch; }
-  .pitch-container { min-height:1380px; padding-bottom:60px; }
-  .pitch-players { inset:1% 2% 3% 2%; }
+  /* MOBILE : on laisse défiler TOUTE la page (fini la zone interne à hauteur fixe
+     qui coupait le bas du terrain). La barre d'onglets reste collée en haut. */
+  .app-main { overflow:visible; }
+  .module-stage { overflow:visible; }
+  .pitch-layout { height:auto; min-height:0; overflow:visible; }
+  .pitch-wrapper { flex-direction:column; overflow:visible !important; }
+  .pitch-container { min-height:1340px; padding-bottom:28px; }
+  .pitch-players { inset:1% 2% 2.5% 2%; }
   .player-name-tag { max-width:110px; font-size:.8rem; }
   .player-circle { width:clamp(46px,12vw,58px); height:clamp(46px,12vw,58px); }
 }
@@ -756,6 +761,8 @@ img, svg, canvas { max-width:100%; }
 
 /* Bandeau d'ouverture/fermeture des pronostics (fenêtre de temps) */
 .prono-window-banner { text-align:center; font-family:'Barlow Condensed',sans-serif; font-weight:700; letter-spacing:.06em; text-transform:uppercase; font-size:.95rem; padding:10px 14px; border-radius:12px; margin:4px auto 10px; max-width:560px; }
+.prono-window-banner-group { display:flex; flex-direction:column; gap:6px; align-items:center; margin-bottom:6px; }
+.prono-window-banner-group .prono-window-banner { margin:0; width:100%; max-width:560px; font-size:.86rem; padding:8px 12px; }
 .prono-window-banner.open { color:#0b3d1e; background:linear-gradient(90deg,#2ecc71,#27ae60); box-shadow:0 4px 16px rgba(46,204,113,.35); }
 .prono-window-banner.closed { color:#ffd9d0; background:rgba(231,76,60,.18); border:1px solid rgba(231,76,60,.5); }
 
@@ -798,6 +805,26 @@ img, svg, canvas { max-width:100%; }
 .login-go { background:linear-gradient(90deg,#ffd700,#ffb300); color:#3a2a00; }
 .login-foot { margin-top:14px; font-size:.78rem; color:rgba(240,244,255,.45); font-family:'Barlow Condensed',sans-serif; }
 
+/* ── MOBILE PORTRAIT : page de connexion entièrement visible, sans rotation ──── */
+@media (max-width:767px){
+  /* align-items:flex-start + marges auto = centré quand ça tient, défilable du HAUT quand c'est grand */
+  .login-screen{ align-items:flex-start; padding:14px 12px; }
+  .login-card{ margin-top:auto; margin-bottom:auto; padding:18px 14px 14px; border-radius:18px; }
+  .login-logo{ font-size:2rem; }
+  .login-title{ font-size:1.7rem; margin-bottom:2px; }
+  .login-sub{ font-size:.9rem; margin:0 0 12px; }
+  .login-grid{ grid-template-columns:repeat(4, 1fr); gap:8px; margin-bottom:12px; }
+  .login-player{ padding:9px 3px; border-radius:11px; gap:4px; }
+  .login-avatar{ width:38px; height:38px; font-size:1rem; }
+  .login-name{ font-size:.74rem; text-align:center; line-height:1.05; word-break:break-word; }
+  .login-role{ font-size:.58rem; }
+  .login-manager-link{ padding:8px 14px; font-size:.9rem; }
+  .login-foot{ margin-top:12px; font-size:.7rem; }
+}
+@media (max-width:340px){
+  .login-grid{ grid-template-columns:repeat(3, 1fr); }
+}
+
 /* ── Bandeau utilisateur connecté ──────────────────────────────────────────── */
 .user-pill { display:flex; align-items:center; gap:8px; padding:4px 6px 4px 12px; border-radius:999px;
   background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); }
@@ -805,7 +832,25 @@ img, svg, canvas { max-width:100%; }
 .user-logout { background:rgba(231,76,60,.85); color:#fff; border:none; border-radius:999px; padding:5px 12px; cursor:pointer;
   font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:.8rem; letter-spacing:.03em; }
 .user-logout:hover { background:#e74c3c; }
-@media (max-width:767px){ .user-pill-name{ display:none; } .user-pill{ padding:4px; } }
+/* ── MOBILE PORTRAIT : en-tête propre, lisible, sans chevauchement ──────────── */
+@media (max-width:767px){
+  /* Ligne 1 = logo + titre ; Ligne 2 = badges + statut + vendeur (toute la largeur) */
+  .header-content{ flex-wrap:wrap; align-items:center; padding:8px 10px 6px; gap:8px; row-gap:8px; }
+  .header-logo-img{ width:34px; height:34px; flex:0 0 auto; }
+  .header-text{ flex:1 1 auto; min-width:0; }
+  .header-text h1{ font-size:1.3rem; letter-spacing:1px; }
+  .header-text p{ font-size:.66rem; letter-spacing:.4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* la rangée de stats passe ENTIÈREMENT sous le titre → plus de chevauchement */
+  .header-stats{ flex:1 1 100%; width:100%; justify-content:flex-start; flex-wrap:wrap; gap:6px 8px; }
+  .stat-badge{ min-width:46px; padding:4px 8px; }
+  .user-pill{ margin-left:auto; padding:3px 5px 3px 10px; gap:6px; max-width:60%; }
+  .user-pill-name{ display:inline; font-size:.82rem; max-width:34vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .user-logout{ padding:4px 10px; font-size:.74rem; flex:0 0 auto; }
+}
+@media (max-width:380px){
+  .header-text h1{ font-size:1.15rem; }
+  .user-pill-name{ max-width:28vw; }
+}
 
 /* ── Bandeau verrou d'édition ──────────────────────────────────────────────── */
 .lock-banner { display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap;

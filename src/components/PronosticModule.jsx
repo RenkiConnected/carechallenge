@@ -32,12 +32,13 @@ function PredictionPoll({ player, onUpdate, T, locked }) {
   )
 }
 
-function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, locked }) {
+function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, predLocked, ballLocked }) {
   const won = player.pronoStatus === 'won'
   const lost = player.pronoStatus === 'lost'
   const lines = player.pronos || 0
+  const cardLocked = predLocked && ballLocked
   return (
-    <div className={`prono-card ${won ? 'prono-card-won prono-winner-anim' : ''} ${lost ? 'prono-card-lost' : ''} ${locked ? 'prono-card-locked' : ''}`}>
+    <div className={`prono-card ${won ? 'prono-card-won prono-winner-anim' : ''} ${lost ? 'prono-card-lost' : ''} ${cardLocked ? 'prono-card-locked' : ''}`}>
       <div className="prono-card-avatar-row">
         <div className="prono-avatar-wrap">
           {won && <span className="prono-float-crown">👑</span>}
@@ -50,7 +51,7 @@ function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, locked 
           {won && lines > 0 && <div className="prono-card-earnings">+{lines * PRONO_BONUS}€</div>}
         </div>
       </div>
-      <PredictionPoll player={player} onUpdate={onUpdate} T={T} locked={locked} />
+      <PredictionPoll player={player} onUpdate={onUpdate} T={T} locked={predLocked} />
 
       <div className="prono-balls-section">
         <div className="prono-balls-label">Lignes du jour{won && lines > 0 ? ' · payées 20€ 🎉' : ''}</div>
@@ -58,9 +59,9 @@ function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, locked 
           {Array.from({ length: lines }, (_, i) => (
             <span key={i} className={`prono-ball ${won ? 'prono-ball-won' : 'prono-ball-pending'}`}>⚽</span>
           ))}
-          <button className="add-prono-ball" disabled={locked} onClick={() => onAddBall(player.id)}
-            title={locked ? 'Disponible le 15 juin 2026' : 'Ajouter une ligne du jour'}>+</button>
-          {lines > 0 && <button className="rem-prono-ball" disabled={locked} onClick={() => onRemoveBall(player.id)} title="Retirer une ligne">−</button>}
+          <button className="add-prono-ball" disabled={ballLocked} onClick={() => onAddBall(player.id)}
+            title={ballLocked ? 'Ballons fermés' : 'Ajouter une ligne du jour'}>+</button>
+          {lines > 0 && <button className="rem-prono-ball" disabled={ballLocked} onClick={() => onRemoveBall(player.id)} title="Retirer une ligne">−</button>}
         </div>
       </div>
 
@@ -90,14 +91,21 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
   const validatedRound = module?.validatedRound || 0
   const T = teamsOf(module)
 
-  // Fenêtre d'ouverture (optionnelle) : pronostics remplissables seulement entre from et to.
+  // Deux fenêtres : prédiction du score (window) et dépôt des ballons (ballWindow).
+  // Si ballWindow est absent, les ballons suivent la même fenêtre que la prédiction.
   const win = module?.settings?.window
+  const ballWin = module?.settings?.ballWindow || win
   const now = Date.now()
   const fromTs = win ? Date.parse(win.from) : null
   const toTs = win ? Date.parse(win.to) : null
   const beforeOpen = win && now < fromTs
   const closed = win && now > toTs
-  const locked = !!(beforeOpen || closed)
+  const predLocked = !!(beforeOpen || closed)               // prédiction du score
+  const bFromTs = ballWin ? Date.parse(ballWin.from) : null
+  const bToTs = ballWin ? Date.parse(ballWin.to) : null
+  const ballBefore = ballWin && now < bFromTs
+  const ballClosed = ballWin && now > bToTs
+  const ballLocked = !!(ballBefore || ballClosed)           // dépôt des ballons
 
   const voters = allPeople.filter(hasScore)
   const winners = allPeople.filter(p => p.pronoStatus === 'won')
@@ -132,11 +140,20 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
       </div>
 
       {win && (
-        beforeOpen
-          ? <div className="prono-window-banner closed">🔒 Match visible — pronostics ouverts aux vendeurs le {fmtDate(fromTs)}</div>
-          : closed
-            ? <div className="prono-window-banner closed">🔒 Pronostics clôturés (fermés le {fmtDate(toTs)})</div>
-            : <div className="prono-window-banner open">🟢 Pronostics ouverts — à remplir jusqu'au {fmtDate(toTs)}</div>
+        <div className="prono-window-banner-group">
+          {beforeOpen
+            ? <div className="prono-window-banner closed">🔒 Pronostics ouverts aux vendeurs le {fmtDate(fromTs)}</div>
+            : closed
+              ? <div className="prono-window-banner closed">🔒 Pronostics clôturés (fermés le {fmtDate(toTs)})</div>
+              : <div className="prono-window-banner open">🟢 Pronostics ouverts — score à remplir jusqu'au {fmtDate(toTs)}</div>}
+          {ballWin && module?.settings?.ballWindow && (
+            ballBefore
+              ? <div className="prono-window-banner closed">⚽ Ballons ouverts le {fmtDate(bFromTs)}</div>
+              : ballClosed
+                ? <div className="prono-window-banner closed">⚽ Ballons clôturés (fermés le {fmtDate(bToTs)})</div>
+                : <div className="prono-window-banner open">⚽ Ballons ouverts — à déposer jusqu'au {fmtDate(bToTs)}</div>
+          )}
+        </div>
       )}
 
       {dashAuth ? (
@@ -179,7 +196,8 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
         {allPeople.map(player => {
           const mine = editableId === '*' || editableId === player.id
           return (
-            <PlayerPronoCard key={player.id} player={player} onUpdate={onUpdatePerson} onAddBall={onAddBall} onRemoveBall={onRemoveBall} T={T} locked={(locked && !dashAuth) || !mine} />
+            <PlayerPronoCard key={player.id} player={player} onUpdate={onUpdatePerson} onAddBall={onAddBall} onRemoveBall={onRemoveBall} T={T}
+              predLocked={(predLocked && !dashAuth) || !mine} ballLocked={(ballLocked && !dashAuth) || !mine} />
           )
         })}
       </div>
