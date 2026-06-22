@@ -146,6 +146,15 @@ function reconcileModules(modules, deletedIds = []) {
     if (settings && settings.feeds === 'poules' && settings.awayCode === 'SEN' && settings.window &&
         (settings.window.from !== '2026-06-16T09:00:00' || settings.window.to !== '2026-06-16T21:50:00'))
       settings = { ...settings, window: { from: '2026-06-16T09:00:00', to: '2026-06-16T21:50:00' } }
+    // Migration : créneaux du pronostic France–Irak — prédictions le 22 juin (09h00→22h59),
+    // ballons le 23 juin (09h00→20h00). Corrige d'anciennes données erronées (fenêtre Sénégal collée par erreur).
+    if (settings && settings.awayCode === 'IRQ') {
+      const W = { from: '2026-06-22T09:00:00', to: '2026-06-22T22:59:00' }
+      const BW = { from: '2026-06-23T09:00:00', to: '2026-06-23T20:00:00' }
+      const w = settings.window, bw = settings.ballWindow
+      if (!w || w.from !== W.from || w.to !== W.to || !bw || bw.from !== BW.from || bw.to !== BW.to)
+        settings = { ...settings, window: { ...W }, ballWindow: { ...BW } }
+    }
     // Migration : la 1ère partie s'appelle "Préparation Mondiale"
     let name = m.name
     if (m.id === canonId && (name === '1ère Partie' || name === '1ere Partie')) name = 'Préparation Mondiale'
@@ -229,7 +238,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v12 · onglets visibles PC+mobile' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v13 · dates Irak corrigées' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
