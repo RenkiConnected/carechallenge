@@ -103,7 +103,9 @@ function CombinedRow({ entry, rank, expanded, onToggle }) {
 // ── Vue module individuel (forfaits) ─────────────────────────────────────────
 function ForfaitModuleView({ mod, coaches, validatedById = {}, isCanonical = false }) {
   const vpFor = (id) => isCanonical ? (validatedById[id]||0) : 0
-  const allPeople = [...(mod.players||[]), ...coaches]
+  // Coachs comptés par module (forfaits dans coachData), zéro par défaut → comme les joueurs.
+  const moduleCoaches = (coaches||[]).map(c => ({ ...c, goals: mod.coachData?.[c.id]?.goals || 0, extraSlots: mod.coachData?.[c.id]?.extraSlots || 0 }))
+  const allPeople = [...(mod.players||[]), ...moduleCoaches]
   const totalGoals = allPeople.reduce((s,p) => s+(p.goals||0), 0)
   const s = { ...DEFAULT_SETTINGS, ...mod.settings }
   const sorted = [...allPeople].sort((a,b) => (b.goals||0)-(a.goals||0) || a.name.localeCompare(b.name))
@@ -174,7 +176,8 @@ function ForfaitModuleView({ mod, coaches, validatedById = {}, isCanonical = fal
 
 // ── Vue module pronostic ──────────────────────────────────────────────────────
 function PronoModuleView({ mod, coaches }) {
-  const allPeople = [...(mod.players||[]), ...coaches]
+  const moduleCoaches = (coaches||[]).map(c => ({ ...c, ...(mod.coachData?.[c.id] || {}) }))
+  const allPeople = [...(mod.players||[]), ...moduleCoaches]
   const sorted = [...allPeople].sort((a,b) => (b.validatedPronos||0)-(a.validatedPronos||0))
   const totalEarnings = sorted.reduce((s,p) => s+getPronoEarnings(p), 0)
   return (

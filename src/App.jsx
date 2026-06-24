@@ -278,7 +278,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v15 · Élimination directe' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v16 · coachs par évènement' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -393,6 +393,8 @@ export default function App() {
   // ── REFS (évite les stale closures dans les callbacks) ─────────────────────
   const activeModRef = useRef(activeMod)
   useEffect(() => { activeModRef.current = activeMod }, [activeMod])
+  const coachesRef = useRef(coaches)
+  useEffect(() => { coachesRef.current = coaches }, [coaches])
 
   // Navigation INDÉPENDANTE et PERSISTANTE par appareil : chaque personne retrouve
   // l'onglet où elle était (sauvegardé en local) et n'est jamais déplacée par les autres.
@@ -735,11 +737,45 @@ export default function App() {
       return [...prev, { id: nid, name: 'Élimination directe', type: 'forfaits', players, settings: { ...ELIM_SETTINGS } }]
     })
   }, [modules, fbStatus])
+
+  // Migration unique : les forfaits des coachs étaient GLOBAUX (mêmes sur toutes les parties).
+  // On les déplace dans le coachData de la partie Préparation (pour ne rien perdre), puis on
+  // remet le compteur global à zéro → désormais chaque évènement a son propre compteur (zéro au départ).
+  const coachMigDone = useRef(false)
+  useEffect(() => {
+    if (coachMigDone.current) return
+    if (isConfigured && db && !hydrated.current) return
+    if (!coaches.some(c => (c.goals || 0) > 0 || (c.extraSlots || 0) > 0)) { coachMigDone.current = true; return }
+    const canon = modules.find(m => (m.type || 'forfaits') === 'forfaits')
+    if (!canon) return
+    coachMigDone.current = true
+    setModules(prev => prev.map(m => {
+      if (m.id !== canon.id) return m
+      const cd = { ...(m.coachData || {}) }
+      coaches.forEach(c => {
+        const g = c.goals || 0, e = c.extraSlots || 0
+        if (g > 0 || e > 0) cd[c.id] = { ...(cd[c.id] || {}), goals: (cd[c.id]?.goals || 0) + g, extraSlots: (cd[c.id]?.extraSlots || 0) + e }
+      })
+      return { ...m, coachData: cd }
+    }))
+    setCoaches(prev => prev.map(c => ({ ...c, goals: 0, extraSlots: 0 })))
+  }, [modules, coaches, fbStatus])
   const activeModule  = modules.find(m => m.id === activeMod) || modules[0]
   const modPlayers    = activeModule?.players || []
   const modSettings   = activeModule?.settings || DEFAULT_SETTINGS
   const isProno       = activeModule?.type === 'pronostic'
-  const allPeople     = [...modPlayers, ...coaches]
+  // Coachs avec leur compteur PROPRE à ce module (stocké dans coachData) → ils repartent
+  // à zéro sur chaque évènement, exactement comme les joueurs.
+  const coachesForModule = (mod) => coaches.map(c => {
+    const cd = mod?.coachData?.[c.id] || {}
+    return { ...c,
+      goals: cd.goals || 0, extraSlots: cd.extraSlots || 0,
+      franceScore: cd.franceScore ?? '', irelandScore: cd.irelandScore ?? '',
+      pronos: cd.pronos || 0, validatedPronos: cd.validatedPronos || 0, pronoStatus: cd.pronoStatus,
+    }
+  })
+  const activeCoaches = coachesForModule(activeModule)
+  const allPeople     = [...modPlayers, ...activeCoaches]
   const totalGoals    = isProno ? 0 : allPeople.reduce((s,p) => s+(p.goals||0), 0)
   const currentTier   = getCurrentTier(totalGoals, modSettings)
   const tierRate      = getTierRate(totalGoals, modSettings)
@@ -792,10 +828,10 @@ export default function App() {
       setCoaches(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
       return
     }
-    // Pronostic d'un coach dans un match à stockage par-match (France–Sénégal) → coachData
-    const active = stateRef.current.modules.find(m => m.id === activeModRef.current)
-    const coachMode = active && active.coachData !== undefined && stateRef.current.coaches.some(c => c.id === id)
-    if (coachMode) {
+    // Donnée par-module d'un COACH (forfaits OU pronostic) → coachData du module actif,
+    // pour que chaque évènement ait son propre compteur (zéro au départ), comme les joueurs.
+    const isCoachId = stateRef.current.coaches.some(c => c.id === id)
+    if (isCoachId) {
       setModules(prev => prev.map(m => {
         if (m.id !== activeModRef.current) return m
         const cd = { ...(m.coachData || {}) }
@@ -804,15 +840,26 @@ export default function App() {
       }))
       return
     }
-    // données par-partie → uniquement la partie active (+ coachs en global pour le reste)
+    // données par-partie d'un joueur → uniquement la partie active
     setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
-    setCoaches(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
   }, [setActivePlayers])
+
+  // Incrémente/décrémente une valeur par-module d'un coach dans son coachData.
+  const bumpCoach = (id, field, delta, floor0) => {
+    setModules(prev => prev.map(m => {
+      if (m.id !== activeModRef.current) return m
+      const cd = { ...(m.coachData || {}) }
+      const cur = (cd[id]?.[field]) || 0
+      if (floor0 && cur + delta < 0) return m
+      cd[id] = { ...(cd[id] || {}), [field]: cur + delta }
+      return { ...m, coachData: cd }
+    }))
+  }
 
   const addGoal = useCallback((id, coords) => {
     if (!mayEdit(id)) return
-    setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, goals: (p.goals||0)+1 } : p))
-    setCoaches(prev => prev.map(p => p.id === id ? { ...p, goals: (p.goals||0)+1 } : p))
+    if (coachesRef.current.some(c => c.id === id)) bumpCoach(id, 'goals', +1)
+    else setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, goals: (p.goals||0)+1 } : p))
     if (coords) {
       setGoalBurst({ x: coords.x, y: coords.y, id: Date.now() })
       setTimeout(() => setGoalBurst(null), 700)
@@ -821,14 +868,14 @@ export default function App() {
 
   const removeGoal = useCallback((id) => {
     if (!mayEdit(id)) return
-    setActivePlayers(prev => prev.map(p => p.id === id && (p.goals||0) > 0 ? { ...p, goals: p.goals-1 } : p))
-    setCoaches(prev => prev.map(p => p.id === id && (p.goals||0) > 0 ? { ...p, goals: p.goals-1 } : p))
+    if (coachesRef.current.some(c => c.id === id)) bumpCoach(id, 'goals', -1, true)
+    else setActivePlayers(prev => prev.map(p => p.id === id && (p.goals||0) > 0 ? { ...p, goals: p.goals-1 } : p))
   }, [setActivePlayers])
 
   const addSlot = useCallback((id) => {
     if (!mayEdit(id)) return
-    setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, extraSlots: (p.extraSlots||0)+1 } : p))
-    setCoaches(prev => prev.map(p => p.id === id ? { ...p, extraSlots: (p.extraSlots||0)+1 } : p))
+    if (coachesRef.current.some(c => c.id === id)) bumpCoach(id, 'extraSlots', +1)
+    else setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, extraSlots: (p.extraSlots||0)+1 } : p))
   }, [setActivePlayers])
 
   // Ajoute le MÊME joueur (même id, nom, couleur) à TOUTES les parties
@@ -1227,13 +1274,13 @@ service cloud.firestore {
       <main className="app-main">
         {tab === 'module' && (
           isProno
-            ? <PronosticModule module={activeModule} players={modPlayers} coaches={coaches} dashAuth={dashAuth} editableId={editableId} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
+            ? <PronosticModule module={activeModule} players={modPlayers} coaches={activeCoaches} dashAuth={dashAuth} editableId={editableId} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
             : <div className="module-stage">
                 <Fireworks active={totalGoals >= objective} confetti />
                 {totalGoals >= objective && (
                   <div className="objective-badge">🎉 Objectif atteint · {objective} {unitU.toLowerCase()}</div>
                 )}
-                <Pitch players={modPlayers} coaches={coaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} editableId={editableId} />
+                <Pitch players={modPlayers} coaches={activeCoaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} editableId={editableId} />
               </div>
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}

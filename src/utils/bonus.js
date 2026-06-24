@@ -114,7 +114,9 @@ export function buildCombinedRanking(modules, coaches) {
   })
 
   modules.forEach(mod => {
-    const allPeople = [...(mod.players || []), ...coaches]
+    // Coachs avec leur compteur de forfaits PROPRE à ce module (coachData), pas le global.
+    const moduleCoaches = coaches.map(c => ({ ...c, goals: mod.coachData?.[c.id]?.goals || 0, extraSlots: mod.coachData?.[c.id]?.extraSlots || 0 }))
+    const allPeople = [...(mod.players || []), ...moduleCoaches]
 
     if (!mod.type || mod.type === 'forfaits') {
       const totalGoals = allPeople.reduce((s, p) => s + (p.goals || 0), 0)
