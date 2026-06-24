@@ -64,6 +64,17 @@ const IRAK_SETTINGS = {
   ballWindow: { from: '2026-06-23T09:00:00', to: '2026-06-23T20:00:00' },
 }
 
+// Préréglage du match France–Norvège (pronostic de la PHASE DE GROUPE).
+// Alimente la Phase de Poules (feeds:'poules'). Un seul créneau (prédiction ET ballons) :
+//  • VENDREDI 26 juin, 09h00 → 20h59.
+const NORVEGE_SETTINGS = {
+  pronoBonus: 20, feeds: 'poules',
+  homeFlag: '🇫🇷', homeName: 'FRANCE', homeCode: 'FRA',
+  awayFlag: '🇳🇴', awayName: 'NORVÈGE', awayCode: 'NOR',
+  matchLabel: 'FRANCE VS NORVÈGE',
+  window: { from: '2026-06-26T09:00:00', to: '2026-06-26T20:59:00' },
+}
+
 // Chargement local : si la clé principale a été vidée/réinitialisée, on récupère
 // automatiquement la DERNIÈRE bonne sauvegarde locale (filet de secours par appareil).
 function loadLocal() {
@@ -155,6 +166,15 @@ function reconcileModules(modules, deletedIds = []) {
       if (!w || w.from !== W.from || w.to !== W.to || !bw || bw.from !== BW.from || bw.to !== BW.to)
         settings = { ...settings, window: { ...W }, ballWindow: { ...BW } }
     }
+    // Migration : créneau du pronostic France–Norvège — prédictions ET ballons le VENDREDI 26 juin (09h00→20h59).
+    if (settings && settings.awayCode === 'NOR') {
+      const W = { from: '2026-06-26T09:00:00', to: '2026-06-26T20:59:00' }
+      const w = settings.window
+      if (!w || w.from !== W.from || w.to !== W.to || settings.ballWindow) {
+        const { ballWindow, ...rest } = settings // on retire proprement ballWindow (un seul créneau)
+        settings = { ...rest, window: { ...W } }
+      }
+    }
     // Migration : la 1ère partie s'appelle "Préparation Mondiale"
     let name = m.name
     if (m.id === canonId && (name === '1ère Partie' || name === '1ere Partie')) name = 'Préparation Mondiale'
@@ -238,7 +258,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v13 · dates Irak corrigées' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v14 · France-Norvège' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -655,6 +675,25 @@ export default function App() {
       if (prev.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'IRQ')) return prev
       const players = playersFromRoster(prev, 'pronostic')
       return [...prev, { id: nid, name: 'France - Irak', type: 'pronostic', players, coachData: {}, settings: { ...IRAK_SETTINGS } }]
+    })
+  }, [modules, fbStatus])
+
+  // Création AUTOMATIQUE du pronostic France–Norvège (phase de groupe → alimente la Phase de Poules).
+  // AUTO-RÉPARANT : recréé s'il a disparu (après lecture du serveur). Détecté par l'équipe (NOR).
+  const norDone = useRef(false)
+  useEffect(() => {
+    if (norDone.current) return
+    if (isConfigured && db && !hydrated.current) return // attend la lecture serveur (anti-doublon)
+    const hasNor = modules.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'NOR')
+    if (hasNor) { norDone.current = true; return }
+    if (!modules.some(m => m.settings?.phase === 'poules')) return // attend la Phase de Poules
+    norDone.current = true
+    localStorage.setItem('fc2026_nor', 'done')
+    const nid = uniqueId()
+    setModules(prev => {
+      if (prev.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'NOR')) return prev
+      const players = playersFromRoster(prev, 'pronostic')
+      return [...prev, { id: nid, name: 'France - Norvège', type: 'pronostic', players, coachData: {}, settings: { ...NORVEGE_SETTINGS } }]
     })
   }, [modules, fbStatus])
   const activeModule  = modules.find(m => m.id === activeMod) || modules[0]
