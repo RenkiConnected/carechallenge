@@ -32,13 +32,23 @@ function makePronoModule(id) {
   return { id, name: 'Bon Pronostiqueur', type: 'pronostic', players: BASE_PLAYERS.map(p => ({ ...p, goals: 0, pronos: 0, validatedPronos: 0, franceScore: '', irelandScore: '' })), settings: { pronoBonus: 20 } }
 }
 
-// Préréglage 2ème partie — Phase de poules (objectif 100 forfaits, jusqu'au 24 juin)
+// Préréglage 2ème partie — Phase de poules (objectif 100 forfaits, jusqu'au 27 juin)
 const PART2_SETTINGS = {
   tier1Rate: 10, tier2Rate: 12, tier3Rate: 15, topScorerRate: 20,
   tier1Threshold: 50, tier2Threshold: 80, objective: 100,
   phaseEnded: false, minForTier3: 3,
   unit: 'forfait', phase: 'poules',
-  bannerPhase: 'PHASE DE POULES', bannerDates: "JUSQU'AU 24 JUIN 2026",
+  bannerPhase: 'PHASE DE POULES', bannerDates: "JUSQU'AU 27 JUIN 2026",
+}
+
+// Préréglage — Élimination directe (MÊMES règles que la phase de poule).
+// Active (informatif) du 28 juin 2026 09h00 au 19 juillet 2026 20h59.
+const ELIM_SETTINGS = {
+  tier1Rate: 10, tier2Rate: 12, tier3Rate: 15, topScorerRate: 20,
+  tier1Threshold: 50, tier2Threshold: 80, objective: 100,
+  phaseEnded: false, minForTier3: 3,
+  unit: 'forfait', phase: 'elim',
+  bannerPhase: 'ÉLIMINATION DIRECTE', bannerDates: 'DU 28 JUIN AU 19 JUILLET 2026',
 }
 
 // Préréglage du match France–Sénégal (pronostic de la PHASE DE GROUPE).
@@ -151,8 +161,18 @@ function reconcileModules(modules, deletedIds = []) {
     if (settings && settings.tier1Rate === 9.99) settings = { ...settings, tier1Rate: 10 }
     // Migration : Phase de poules désormais en "forfaits" (et non "lignes")
     if (settings && settings.phase === 'poules' && settings.unit === 'ligne') settings = { ...settings, unit: 'forfait' }
-    // Migration : la phase de poules va jusqu'au 24 juin (et non 27 juillet)
-    if (settings && settings.phase === 'poules' && settings.bannerDates && /JUILLET/i.test(settings.bannerDates)) settings = { ...settings, bannerDates: "JUSQU'AU 24 JUIN 2026" }
+    // Migration : la phase de poules va jusqu'au 27 JUIN 2026 (corrige 24 juin / 27 juillet)
+    if (settings && settings.phase === 'poules' && settings.bannerDates !== "JUSQU'AU 27 JUIN 2026")
+      settings = { ...settings, bannerDates: "JUSQU'AU 27 JUIN 2026" }
+    // Élimination directe : un module créé à la main (nommé "élimination directe") est CONVERTI
+    // aux mêmes règles que la phase de poule, puis on garde ses bonnes dates de bandeau.
+    if (settings) {
+      const nm = (m.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      if (settings.phase !== 'elim' && nm.includes('elimination directe'))
+        settings = { ...settings, ...ELIM_SETTINGS }
+      if (settings.phase === 'elim' && settings.bannerDates !== 'DU 28 JUIN AU 19 JUILLET 2026')
+        settings = { ...settings, bannerDates: 'DU 28 JUIN AU 19 JUILLET 2026' }
+    }
     // Migration : créneau du pronostic France–Sénégal = 16 juin 09h00 → 21h50 (UNIQUEMENT ce match)
     if (settings && settings.feeds === 'poules' && settings.awayCode === 'SEN' && settings.window &&
         (settings.window.from !== '2026-06-16T09:00:00' || settings.window.to !== '2026-06-16T21:50:00'))
@@ -258,7 +278,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v14 · France-Norvège' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v15 · Élimination directe' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -694,6 +714,25 @@ export default function App() {
       if (prev.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'NOR')) return prev
       const players = playersFromRoster(prev, 'pronostic')
       return [...prev, { id: nid, name: 'France - Norvège', type: 'pronostic', players, coachData: {}, settings: { ...NORVEGE_SETTINGS } }]
+    })
+  }, [modules, fbStatus])
+
+  // Élimination directe (mêmes règles que la phase de poule). AUTO-RÉPARANT : créée si absente.
+  const elimDone = useRef(false)
+  const isElim = (m) => m.settings?.phase === 'elim' ||
+    (m.type !== 'pronostic' && (m.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes('elimination directe'))
+  useEffect(() => {
+    if (elimDone.current) return
+    if (isConfigured && db && !hydrated.current) return // attend la lecture serveur (anti-doublon)
+    if (modules.some(isElim)) { elimDone.current = true; return } // déjà présent (créé à la main ou ailleurs)
+    if (!modules.some(m => m.settings?.phase === 'poules')) return // attend la Phase de Poules
+    elimDone.current = true
+    localStorage.setItem('fc2026_elim', 'done')
+    const nid = uniqueId()
+    setModules(prev => {
+      if (prev.some(isElim)) return prev
+      const players = playersFromRoster(prev, 'forfaits')
+      return [...prev, { id: nid, name: 'Élimination directe', type: 'forfaits', players, settings: { ...ELIM_SETTINGS } }]
     })
   }, [modules, fbStatus])
   const activeModule  = modules.find(m => m.id === activeMod) || modules[0]
@@ -1143,8 +1182,10 @@ service cloud.firestore {
               const pronoTarget = modSettings.feeds === 'poules' ? 'PHASE DE POULES' : 'PRÉPARATION MONDIALE'
               const items = isProno
                 ? [`🎯 BON PRONOSTIQUEUR · ${pronoMatch}`, '⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS', `🏆 CLASSEMENT COMPTABILISÉ DANS ${pronoTarget}`, '🔧 RÉSULTAT OFFICIEL SAISI PAR LE MANAGER']
-                : (modSettings.phase === 'poules'
-                    ? [`⚽ ${modSettings.bannerPhase || 'PHASE DE POULES'} · ${modSettings.bannerDates || "JUSQU'AU 24 JUIN 2026"}`, `🏆 OBJECTIF ${objective} FORFAITS → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🇫🇷 FRANCE VS SÉNÉGAL · PHASE DE GROUPE', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/FORFAIT SI 100 ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
+                : (modSettings.phase === 'elim'
+                    ? [`⚔️ ${modSettings.bannerPhase || 'ÉLIMINATION DIRECTE'} · ${modSettings.bannerDates || 'DU 28 JUIN AU 19 JUILLET 2026'}`, `🏆 OBJECTIF ${objective} FORFAITS → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🔥 MÊMES RÈGLES QUE LA PHASE DE POULES', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/FORFAIT SI ${objective} ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
+                : modSettings.phase === 'poules'
+                    ? [`⚽ ${modSettings.bannerPhase || 'PHASE DE POULES'} · ${modSettings.bannerDates || "JUSQU'AU 27 JUIN 2026"}`, `🏆 OBJECTIF ${objective} FORFAITS → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🇫🇷 FRANCE VS SÉNÉGAL · PHASE DE GROUPE', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/FORFAIT SI 100 ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
                     : [`⚽ ${modSettings.bannerPhase || 'PHASE DE PRÉPARATION MONDIALE'} · ${modSettings.bannerDates || "JUSQU'AU 11/06/2026"}`, `🏆 OBJECTIF ${objective} ${unitU} → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🎯 PRONOSTIC FRANCE VS IRLANDE COMPTÉ ICI', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/${unit} SI OBJECTIF ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE'])
               // contenu dupliqué pour un défilement continu sans coupure
               return [...items, ...items].map((t, i) => <span key={i}>{t}</span>)
