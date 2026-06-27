@@ -7,7 +7,7 @@ import Rules from './components/Rules'
 import Dashboard from './components/Dashboard'
 import Login from './components/Login'
 import WorldCupCountdown, { GROUP_PHASE_TS } from './components/WorldCupCountdown'
-import { getCurrentTier, getTierRate, DEFAULT_SETTINGS } from './utils/bonus'
+import { getCurrentTier, getTierRate, DEFAULT_SETTINGS, PRONO_BONUS } from './utils/bonus'
 import { db, isConfigured, doc, setDoc, onSnapshot } from './firebase'
 
 const BASE_PLAYERS = [
@@ -66,12 +66,12 @@ const SENEGAL_SETTINGS = {
 //  • Prédiction du score : LUNDI 22 juin, 09h00 → 22h59.
 //  • Dépôt des ballons   : MARDI 23 juin, 09h00 → 20h00.
 const IRAK_SETTINGS = {
-  pronoBonus: 20, feeds: 'poules',
+  pronoBonus: 25, feeds: 'poules',
   homeFlag: '🇫🇷', homeName: 'FRANCE', homeCode: 'FRA',
   awayFlag: '🇮🇶', awayName: 'IRAK', awayCode: 'IRQ',
   matchLabel: 'FRANCE VS IRAK',
   window: { from: '2026-06-22T09:00:00', to: '2026-06-22T22:59:00' },
-  ballWindow: { from: '2026-06-23T09:00:00', to: '2026-06-23T20:00:00' },
+  ballWindow: { from: '2026-06-27T09:00:00', to: '2026-06-27T20:30:00' },
 }
 
 // Préréglage du match France–Norvège (pronostic de la PHASE DE GROUPE).
@@ -181,10 +181,10 @@ function reconcileModules(modules, deletedIds = []) {
     // ballons le 23 juin (09h00→20h00). Corrige d'anciennes données erronées (fenêtre Sénégal collée par erreur).
     if (settings && settings.awayCode === 'IRQ') {
       const W = { from: '2026-06-22T09:00:00', to: '2026-06-22T22:59:00' }
-      const BW = { from: '2026-06-23T09:00:00', to: '2026-06-23T20:00:00' }
+      const BW = { from: '2026-06-27T09:00:00', to: '2026-06-27T20:30:00' }
       const w = settings.window, bw = settings.ballWindow
-      if (!w || w.from !== W.from || w.to !== W.to || !bw || bw.from !== BW.from || bw.to !== BW.to)
-        settings = { ...settings, window: { ...W }, ballWindow: { ...BW } }
+      if (!w || w.from !== W.from || w.to !== W.to || !bw || bw.from !== BW.from || bw.to !== BW.to || settings.pronoBonus !== 25)
+        settings = { ...settings, window: { ...W }, ballWindow: { ...BW }, pronoBonus: 25 }
     }
     // Migration : créneau du pronostic France–Norvège — prédictions ET ballons le VENDREDI 26 juin (09h00→20h59).
     if (settings && settings.awayCode === 'NOR') {
@@ -278,7 +278,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v16 · coachs par évènement' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v17 · France-Irak 25€ aujourd\u2019hui' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -796,6 +796,21 @@ export default function App() {
     return map
   }, [modules, coaches, activeModule])
 
+  // Valeur € des ballons validés par joueur (taux PROPRE à chaque pronostic, ex. France–Irak 25€).
+  const validatedValueById = useMemo(() => {
+    const map = {}
+    const activeIsPoules = activeModule?.settings?.phase === 'poules'
+    const feedsThis = m => { const f = m.settings?.feeds; return activeIsPoules ? f === 'poules' : f !== 'poules' }
+    modules.forEach(m => {
+      if (m.type !== 'pronostic' || !feedsThis(m)) return
+      const val = m.settings?.pronoBonus || PRONO_BONUS
+      ;(m.players || []).forEach(p => { map[p.id] = (map[p.id] || 0) + (p.validatedPronos || 0) * val })
+      if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => { map[id] = (map[id] || 0) + (d?.validatedPronos || 0) * val })
+    })
+    if (!activeIsPoules) coaches.forEach(c => { if (c.validatedPronos) map[c.id] = (map[c.id] || 0) + (c.validatedPronos || 0) * PRONO_BONUS })
+    return map
+  }, [modules, coaches, activeModule])
+
   // ── Helpers d'update robustes (utilise ref, pas closure) ──────────────────
   // Met à jour les joueurs du MODULE ACTIF
   const setActivePlayers = useCallback((updater) => {
@@ -936,17 +951,18 @@ export default function App() {
             mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, pronos: (p.pronos || 0) + 1 } : p) }
           }
         }
-        if (target && m.id === target.id) // +1 forfait dans le classement alimenté
-          mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, goals: (p.goals || 0) + 1 } : p) }
+        if (target && m.id === target.id) { // +1 forfait dans le classement alimenté
+          if (stateRef.current.coaches.some(c => c.id === id)) {
+            const cd = { ...(mm.coachData || {}) }
+            cd[id] = { ...(cd[id] || {}), goals: (cd[id]?.goals || 0) + 1 }
+            mm = { ...mm, coachData: cd }
+          } else {
+            mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, goals: (p.goals || 0) + 1 } : p) }
+          }
+        }
         return mm
       })
     })
-    // coach : forfait global (les coachs n'ont pas de fiche par-partie) ; prono géré ci-dessus si coachMode
-    const active = stateRef.current.modules.find(m => m.id === activeModRef.current)
-    const coachMode = active && active.coachData !== undefined
-    setCoaches(prev => prev.map(p => p.id === id
-      ? { ...p, goals: (p.goals || 0) + 1, ...(coachMode ? {} : { pronos: (p.pronos || 0) + 1 }) }
-      : p))
   }, [])
 
   const removePronoBall = useCallback((id) => {
@@ -972,18 +988,17 @@ export default function App() {
             }) }
           }
         }
-        if (target && m.id === target.id)
-          mm = { ...mm, players: mm.players.map(p => p.id === id && (p.goals || 0) > 0 ? { ...p, goals: p.goals - 1 } : p) }
+        if (target && m.id === target.id) {
+          if (stateRef.current.coaches.some(c => c.id === id)) {
+            const cd = { ...(mm.coachData || {}) }
+            if ((cd[id]?.goals || 0) > 0) { cd[id] = { ...(cd[id] || {}), goals: cd[id].goals - 1 }; mm = { ...mm, coachData: cd } }
+          } else {
+            mm = { ...mm, players: mm.players.map(p => p.id === id && (p.goals || 0) > 0 ? { ...p, goals: p.goals - 1 } : p) }
+          }
+        }
         return mm
       })
     })
-    const active = stateRef.current.modules.find(m => m.id === activeModRef.current)
-    const coachMode = active && active.coachData !== undefined
-    setCoaches(prev => prev.map(p => {
-      if (p.id !== id) return p
-      const np = Math.max(0, (p.pronos || 0) - 1)
-      return { ...p, goals: Math.max(0, (p.goals || 0) - 1), ...(coachMode ? {} : { pronos: np, validatedPronos: Math.min(p.validatedPronos || 0, np) }) }
-    }))
   }, [])
 
   // Le manager saisit le résultat officiel France-Irlande sur le module pronostic
@@ -1280,7 +1295,16 @@ service cloud.firestore {
                 {totalGoals >= objective && (
                   <div className="objective-badge">🎉 Objectif atteint · {objective} {unitU.toLowerCase()}</div>
                 )}
-                <Pitch players={modPlayers} coaches={activeCoaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} dashAuth={dashAuth} editableId={editableId} />
+                {activeModule?.settings?.phase === 'poules' && (() => {
+                  const n = new Date()
+                  const isToday2706 = n.getFullYear() === 2026 && n.getMonth() === 5 && n.getDate() === 27
+                  return isToday2706 ? (
+                    <div className="poules-irak-note">
+                      ⚽ <strong>Aujourd'hui</strong> — les ballons des <strong>vainqueurs du pronostic France–Irak</strong> sont à enregistrer directement dans la section <strong>« France - Irak »</strong> (onglet du match), pas sur ce terrain.
+                    </div>
+                  ) : null
+                })()}
+                <Pitch players={modPlayers} coaches={activeCoaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} validatedValueById={validatedValueById} dashAuth={dashAuth} editableId={editableId} />
               </div>
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}
@@ -1300,6 +1324,7 @@ service cloud.firestore {
             onRenameModule={renameModule} onRemoveModule={removeModule}
             currentTier={currentTier} tierRate={tierRate} fbStatus={fbStatus} fbError={fbError}
             validatedById={validatedById}
+            validatedValueById={validatedValueById}
             onExport={exportData} onImport={importData}
             liveSync={liveSync} onToggleLiveSync={setLiveSync}
           />

@@ -32,7 +32,7 @@ function PredictionPoll({ player, onUpdate, T, locked }) {
   )
 }
 
-function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, predLocked, ballLocked }) {
+function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, predLocked, ballLocked, bonus = PRONO_BONUS }) {
   const won = player.pronoStatus === 'won'
   const lost = player.pronoStatus === 'lost'
   const lines = player.pronos || 0
@@ -48,13 +48,13 @@ function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, predLoc
         <div className="prono-card-info">
           <div className="prono-card-name">{player.name}</div>
           {player.isCoach && <div className="prono-card-role">{player.role}</div>}
-          {won && lines > 0 && <div className="prono-card-earnings">+{lines * PRONO_BONUS}€</div>}
+          {won && lines > 0 && <div className="prono-card-earnings">+{lines * bonus}€</div>}
         </div>
       </div>
       <PredictionPoll player={player} onUpdate={onUpdate} T={T} locked={predLocked} />
 
       <div className="prono-balls-section">
-        <div className="prono-balls-label">Lignes du jour{won && lines > 0 ? ' · payées 20€ 🎉' : ''}</div>
+        <div className="prono-balls-label">Lignes du jour{won && lines > 0 ? ` · payées ${bonus}€ 🎉` : ''}</div>
         <div className="prono-balls-row">
           {Array.from({ length: lines }, (_, i) => (
             <span key={i} className={`prono-ball ${won ? 'prono-ball-won' : 'prono-ball-pending'}`}>⚽</span>
@@ -65,7 +65,7 @@ function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, predLoc
         </div>
       </div>
 
-      {won && <div className="prono-won-label">🎉 BON PRONOSTIC · {lines} ligne{lines>1?'s':''} × 20€ = <strong>+{lines * PRONO_BONUS}€</strong></div>}
+      {won && <div className="prono-won-label">🎉 BON PRONOSTIC · {lines} ligne{lines>1?'s':''} × {bonus}€ = <strong>+{lines * bonus}€</strong></div>}
       {lost && <div className="prono-lost-label">❌ Pronostic raté · lignes au tarif normal</div>}
       {!won && !lost && hasScore(player) && <div className="pred-locked">🔒 Pronostic enregistré</div>}
     </div>
@@ -109,6 +109,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
 
   const voters = allPeople.filter(hasScore)
   const winners = allPeople.filter(p => p.pronoStatus === 'won')
+  const bonus = module?.settings?.pronoBonus || PRONO_BONUS
   const showResultBlock = validatedRound > 0 && resultSet
   const nobodyWon = showResultBlock && winners.length === 0
 
@@ -123,7 +124,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
             <div className="pmt-sub">Challenge dans le challenge</div>
           </div>
         </div>
-        <div className="special-day-pill">⭐ PRONOSTIC JUSTE · {PRONO_BONUS}€</div>
+        <div className="special-day-pill">⭐ PRONOSTIC JUSTE · {bonus}€</div>
       </div>
 
       <div className="match-card-big">
@@ -135,7 +136,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
             <div className="match-center-block"><div className="match-vs">VS</div><div className="match-competition">Coupe du Monde 2026</div></div>
             <div className="match-team-block ireland-side"><span className="match-big-flag">{T.awayFlag}</span><span className="match-team-name">{T.awayName}</span></div>
           </div>
-          <div className="match-bonus-tag">Pronostic correct = <strong style={{ color:'#ffd700' }}>{PRONO_BONUS}€</strong> de bonus 🏆</div>
+          <div className="match-bonus-tag">Pronostic correct = <strong style={{ color:"#ffd700" }}>{bonus}€</strong> de bonus 🏆</div>
         </div>
       </div>
 
@@ -181,7 +182,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
 
       {showResultBlock && winners.length > 0 && (
         <div className="prono-winner-banner">
-          🎉 {winners.length === 1 ? winners[0].name : `${winners.length} GAGNANTS`} · BON PRONOSTIC ! +{PRONO_BONUS}€
+          🎉 {winners.length === 1 ? winners[0].name : `${winners.length} GAGNANTS`} · BON PRONOSTIC ! +{bonus}€
         </div>
       )}
       {nobodyWon && <div className="prono-perdu-banner">PERDU — aucun bon pronostic</div>}
@@ -189,7 +190,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
       <div className="prono-stats-bar">
         <div className="prono-stat-item"><div className="psi-num">{voters.length}/{allPeople.length}</div><div className="psi-label">Ont voté</div></div>
         <div className="prono-stat-item"><div className="psi-num" style={{ color:'#2ecc71' }}>{winners.length}</div><div className="psi-label">Gagnants 🎯</div></div>
-        <div className="prono-stat-item"><div className="psi-num" style={{ color:'#ff9800' }}>{winners.length * PRONO_BONUS}€</div><div className="psi-label">Bonus distribué</div></div>
+        <div className="prono-stat-item"><div className="psi-num" style={{ color:'#ff9800' }}>{winners.length * bonus}€</div><div className="psi-label">Bonus distribué</div></div>
       </div>
 
       <div className="prono-grid">
@@ -197,7 +198,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
           const mine = editableId === '*' || editableId === player.id
           return (
             <PlayerPronoCard key={player.id} player={player} onUpdate={onUpdatePerson} onAddBall={onAddBall} onRemoveBall={onRemoveBall} T={T}
-              predLocked={(predLocked && !dashAuth) || !mine} ballLocked={(ballLocked && !dashAuth) || !mine} />
+              predLocked={(predLocked && !dashAuth) || !mine} ballLocked={(ballLocked && !dashAuth) || !mine} bonus={bonus} />
           )
         })}
       </div>

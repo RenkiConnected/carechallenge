@@ -3,7 +3,7 @@ import { getPlayerEarnings, getPlayerTotalEarnings, isTopScorer, hasHatTrick, DE
 
 function getInitials(name) { return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
 
-export default function PlayerModal({ player, allPeople, totalGoals, settings, validatedCount = 0, canEdit = true, onAddGoal, onRemoveGoal, onAddSlot, onUpdatePerson, onClose }) {
+export default function PlayerModal({ player, allPeople, totalGoals, settings, validatedCount = 0, validatedValue = null, canEdit = true, onAddGoal, onRemoveGoal, onAddSlot, onUpdatePerson, onClose }) {
   const [editingName, setEditingName] = useState(false)
   const [nameVal, setNameVal] = useState(player.name)
   const [lastFilled, setLastFilled] = useState(null)
@@ -13,7 +13,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
 
   const unit = s.unit || 'forfait'
   const earnings = getPlayerEarnings(player, allPeople, totalGoals, s)
-  const totalEarnings = getPlayerTotalEarnings(player, allPeople, totalGoals, s, validatedCount)
+  const totalEarnings = getPlayerTotalEarnings(player, allPeople, totalGoals, s, validatedCount, validatedValue)
   const vp = Math.min(validatedCount || 0, player.goals || 0)
   const pronoBonus = Math.max(0, totalEarnings - earnings)
   const isTop = isTopScorer(player, allPeople, s)

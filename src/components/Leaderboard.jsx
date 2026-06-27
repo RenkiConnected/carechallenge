@@ -11,17 +11,18 @@ const MEDALS = ['🥇','🥈','🥉']
 // les pronostics France–Sénégal (feeds:'poules') alimentent la Phase de Poules,
 // les autres (France–Irlande) alimentent la Préparation Mondiale.
 function validatedForFeed(modules, coaches, isPoules) {
-  const map = {}
+  const count = {}, value = {}
   modules.forEach(m => {
     if (m.type !== 'pronostic') return
     const f = m.settings?.feeds
     const matches = isPoules ? f === 'poules' : f !== 'poules'
     if (!matches) return
-    ;(m.players||[]).forEach(p => { map[p.id]=(map[p.id]||0)+(p.validatedPronos||0) })
-    if (m.coachData) Object.entries(m.coachData).forEach(([id,d])=>{ map[id]=(map[id]||0)+(d?.validatedPronos||0) })
+    const val = m.settings?.pronoBonus || PRONO_BONUS
+    ;(m.players||[]).forEach(p => { count[p.id]=(count[p.id]||0)+(p.validatedPronos||0); value[p.id]=(value[p.id]||0)+(p.validatedPronos||0)*val })
+    if (m.coachData) Object.entries(m.coachData).forEach(([id,d])=>{ count[id]=(count[id]||0)+(d?.validatedPronos||0); value[id]=(value[id]||0)+(d?.validatedPronos||0)*val })
   })
-  if (!isPoules) coaches.forEach(c => { if (c.validatedPronos) map[c.id]=(map[c.id]||0)+(c.validatedPronos||0) })
-  return map
+  if (!isPoules) coaches.forEach(c => { if (c.validatedPronos){ count[c.id]=(count[c.id]||0)+(c.validatedPronos||0); value[c.id]=(value[c.id]||0)+(c.validatedPronos||0)*PRONO_BONUS } })
+  return { count, value }
 }
 
 // ── Ligne joueur — vue combinée ──────────────────────────────────────────────
@@ -101,15 +102,16 @@ function CombinedRow({ entry, rank, expanded, onToggle }) {
 }
 
 // ── Vue module individuel (forfaits) ─────────────────────────────────────────
-function ForfaitModuleView({ mod, coaches, validatedById = {}, isCanonical = false }) {
+function ForfaitModuleView({ mod, coaches, validatedById = {}, validatedValueById = {}, isCanonical = false }) {
   const vpFor = (id) => isCanonical ? (validatedById[id]||0) : 0
+  const vvalFor = (id) => isCanonical ? (validatedValueById[id] ?? null) : null
   // Coachs comptés par module (forfaits dans coachData), zéro par défaut → comme les joueurs.
   const moduleCoaches = (coaches||[]).map(c => ({ ...c, goals: mod.coachData?.[c.id]?.goals || 0, extraSlots: mod.coachData?.[c.id]?.extraSlots || 0 }))
   const allPeople = [...(mod.players||[]), ...moduleCoaches]
   const totalGoals = allPeople.reduce((s,p) => s+(p.goals||0), 0)
   const s = { ...DEFAULT_SETTINGS, ...mod.settings }
   const sorted = [...allPeople].sort((a,b) => (b.goals||0)-(a.goals||0) || a.name.localeCompare(b.name))
-  const totalEarnings = sorted.reduce((sum,p) => sum+getPlayerTotalEarnings(p,allPeople,totalGoals,s,vpFor(p.id)), 0)
+  const totalEarnings = sorted.reduce((sum,p) => sum+getPlayerTotalEarnings(p,allPeople,totalGoals,s,vpFor(p.id),vvalFor(p.id)), 0)
   const currentTier = getCurrentTier(totalGoals, s)
   const unit = s.unit || 'forfait'
   const objective = s.objective ?? s.tier2Threshold
@@ -135,7 +137,7 @@ function ForfaitModuleView({ mod, coaches, validatedById = {}, isCanonical = fal
       </div>
 
       {sorted.map((player, i) => {
-        const earnings = getPlayerTotalEarnings(player, allPeople, totalGoals, s, vpFor(player.id))
+        const earnings = getPlayerTotalEarnings(player, allPeople, totalGoals, s, vpFor(player.id), vvalFor(player.id))
         const isTop = isTopScorer(player, allPeople, s)
         const ht = hasHatTrick(player)
         const rank = i + 1
@@ -312,8 +314,8 @@ export default function Leaderboard({ modules, coaches, activeModId }) {
           : (() => {
               const isPoules = mod.settings?.phase === 'poules'
               const credited = mod.id === canonId || isPoules
-              const map = credited ? validatedForFeed(modules, coaches, isPoules) : {}
-              return <ForfaitModuleView mod={mod} coaches={coaches} validatedById={map} isCanonical={credited} />
+              const maps = credited ? validatedForFeed(modules, coaches, isPoules) : { count:{}, value:{} }
+              return <ForfaitModuleView mod={mod} coaches={coaches} validatedById={maps.count} validatedValueById={maps.value} isCanonical={credited} />
             })()
       })()}
     </div>

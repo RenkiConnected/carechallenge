@@ -44,13 +44,17 @@ export function getPlayerEarnings(player, players, totalGoals, settings = DEFAUL
  * les autres valent le taux du palier courant (10/12/15€).
  * total = (buts - validés) × taux + validés × 20
  */
-export function getPlayerTotalEarnings(player, players, totalGoals, settings = DEFAULT_SETTINGS, validatedCount = 0) {
+export function getPlayerTotalEarnings(player, players, totalGoals, settings = DEFAULT_SETTINGS, validatedCount = 0, validatedValue = null) {
   const s = { ...DEFAULT_SETTINGS, ...settings }
   const goals = player.goals || 0
   if (!goals) return 0
   const rate = ballRateFor(player, players, totalGoals, s)
-  const vp = Math.max(0, Math.min(validatedCount || 0, goals))
-  return round2((goals - vp) * rate + vp * VALIDATED_BALL_VALUE)
+  const vc = validatedCount || 0
+  const vp = Math.max(0, Math.min(vc, goals))
+  // Valeur des ballons validés : si une valeur € est fournie (taux par pronostic, ex. Irak 25€),
+  // on l'utilise (moyenne par ballon × ballons retenus) ; sinon repli au taux standard (20€).
+  const bonus = (validatedValue != null && vc > 0) ? (validatedValue / vc) * vp : vp * VALIDATED_BALL_VALUE
+  return round2((goals - vp) * rate + bonus)
 }
 
 /** Gains pronostic d'un joueur */
@@ -67,12 +71,16 @@ export function getPronoBonusMap(modules, coaches) {
   const map = {}
   ;(modules || []).forEach(m => {
     if (m.type === 'pronostic') {
+      const val = m.settings?.pronoBonus || PRONO_BONUS
       ;(m.players || []).forEach(p => {
-        map[p.id] = (map[p.id] || 0) + (p.validatedPronos || 0) * PRONO_BONUS
+        map[p.id] = (map[p.id] || 0) + (p.validatedPronos || 0) * val
+      })
+      if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => {
+        map[id] = (map[id] || 0) + (d?.validatedPronos || 0) * val
       })
     }
   })
-  // Les coaches stockent validatedPronos sur leur propre objet (global)
+  // Les coaches stockent validatedPronos sur leur propre objet (global) pour le prono historique
   ;(coaches || []).forEach(c => {
     if (c.validatedPronos) map[c.id] = (map[c.id] || 0) + (c.validatedPronos || 0) * PRONO_BONUS
   })
@@ -90,13 +98,26 @@ export function buildCombinedRanking(modules, coaches) {
   // Pronostics validés répartis selon le classement alimenté :
   // France–Sénégal (feeds:'poules') → Phase de Poules ; France–Irlande → Préparation.
   const validatedPrep = {}, validatedPoules = {}
+  const valuePrep = {}, valuePoules = {} // valeur € des ballons validés (taux par pronostic)
   ;(modules || []).forEach(m => {
     if (m.type !== 'pronostic') return
-    const target = m.settings?.feeds === 'poules' ? validatedPoules : validatedPrep
-    ;(m.players || []).forEach(p => { target[String(p.id)] = (target[String(p.id)] || 0) + (p.validatedPronos || 0) })
-    if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => { target[String(id)] = (target[String(id)] || 0) + (d?.validatedPronos || 0) })
+    const toPoules = m.settings?.feeds === 'poules'
+    const target = toPoules ? validatedPoules : validatedPrep
+    const vtarget = toPoules ? valuePoules : valuePrep
+    const val = m.settings?.pronoBonus || PRONO_BONUS
+    ;(m.players || []).forEach(p => {
+      target[String(p.id)] = (target[String(p.id)] || 0) + (p.validatedPronos || 0)
+      vtarget[String(p.id)] = (vtarget[String(p.id)] || 0) + (p.validatedPronos || 0) * val
+    })
+    if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => {
+      target[String(id)] = (target[String(id)] || 0) + (d?.validatedPronos || 0)
+      vtarget[String(id)] = (vtarget[String(id)] || 0) + (d?.validatedPronos || 0) * val
+    })
   })
-  ;(coaches || []).forEach(c => { if (c.validatedPronos) validatedPrep[String(c.id)] = (validatedPrep[String(c.id)] || 0) + (c.validatedPronos || 0) })
+  ;(coaches || []).forEach(c => { if (c.validatedPronos) {
+    validatedPrep[String(c.id)] = (validatedPrep[String(c.id)] || 0) + (c.validatedPronos || 0)
+    valuePrep[String(c.id)] = (valuePrep[String(c.id)] || 0) + (c.validatedPronos || 0) * PRONO_BONUS
+  } })
 
   // La 1ère partie "forfaits" (Préparation) est le classement canonique.
   const canonId = ((modules || []).find(m => (m.type || 'forfaits') === 'forfaits') || (modules || [])[0])?.id
@@ -124,6 +145,7 @@ export function buildCombinedRanking(modules, coaches) {
       const isCanon = mod.id === canonId
       const isPoules = mod.settings?.phase === 'poules'
       const vmap = isPoules ? validatedPoules : (isCanon ? validatedPrep : null)
+      const vvalmap = isPoules ? valuePoules : (isCanon ? valuePrep : null)
 
       allPeople.forEach(p => {
         const key = String(p.id)
@@ -134,7 +156,8 @@ export function buildCombinedRanking(modules, coaches) {
         const entry = map.get(key)
         entry.name = p.name; entry.color = p.color
         const vp = vmap ? (vmap[key] || 0) : 0
-        const total = getPlayerTotalEarnings(p, allPeople, totalGoals, s, vp)
+        const vval = vvalmap ? (vvalmap[key] ?? null) : null
+        const total = getPlayerTotalEarnings(p, allPeople, totalGoals, s, vp, vval)
         const forfaitOnly = getPlayerEarnings(p, allPeople, totalGoals, s)
         entry.totalGoals += (p.goals || 0)
         entry.forfaitEarnings += forfaitOnly
