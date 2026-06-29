@@ -633,17 +633,20 @@ img, svg, canvas { max-width:100%; }
   .pitch-players { inset:5% 3% 8% 3%; }
 }
 
-/* Mobile : terrain haut et défilable (on fait défiler pour voir tous les joueurs) */
+/* Mobile : TOUTE LA PAGE défile (le header et les onglets remontent) → le terrain occupe
+   plus de place et le tableau est entièrement visible. Plus de petites zones à défilement interne. */
 @media (max-width:767px) {
-  /* Le terrain défile DANS sa propre zone (même principe que Classement/Règles/Manager,
-     qui fonctionnent). On ne touche PAS à .app-main : les autres onglets restent intacts. */
-  .module-stage { flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; }
-  .pitch-layout { height:auto; min-height:0; }
-  .pitch-wrapper { flex-direction:column; }
-  .pitch-container { min-height:1340px; padding-bottom:28px; }
+  .app { height:auto; min-height:100vh; overflow:visible; }
+  .app-main { overflow:visible; }
+  .module-stage { flex:none; min-height:0; overflow:visible; }
+  .pitch-layout { height:auto; min-height:0; overflow:visible; }
+  .pitch-wrapper { flex-direction:column; overflow:visible; min-height:0; }
+  .pitch-container { min-height:max(1340px, 125vh); padding-bottom:28px; overflow:visible; }
   .pitch-players { inset:1% 2% 2.5% 2%; }
   .player-name-tag { max-width:110px; font-size:.8rem; }
   .player-circle { width:clamp(46px,12vw,58px); height:clamp(46px,12vw,58px); }
+  /* Tableau : hauteur naturelle → défile verticalement AVEC la page ; horizontal au doigt. */
+  .bracket-scroll { max-height:none; overflow-x:auto; overflow-y:visible; }
 }
 
 /* ── Bandeau de récupération (aucune donnée locale) ── */
@@ -984,8 +987,11 @@ img, svg, canvas { max-width:100%; }
 .bk-final-title{ font-family:'Bebas Neue',sans-serif; font-size:1.3rem; letter-spacing:3px; color:var(--gold); margin-bottom:6px; }
 .bk-match.bk-final{ min-width:160px; border-color:rgba(255,215,0,.5); background:rgba(255,215,0,.06); box-shadow:0 0 18px rgba(255,196,0,.18); }
 
+@media (max-width:767px){
+  /* Tableau : hauteur naturelle → défile verticalement AVEC la page (pas de zone interne bloquée) */
+  .bracket-scroll{ max-height:none !important; overflow-y:visible; }
+}
 @media (max-width:640px){
-  .bracket-scroll{ max-height:calc(100vh - 210px); }
   .bk-col{ min-width:118px; }
   .bk-team{ font-size:.8rem; padding:5px 6px; min-height:32px; }
   .bk-center{ min-width:150px; }
