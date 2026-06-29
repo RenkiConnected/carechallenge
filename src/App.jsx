@@ -287,7 +287,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v20 · Élim. 50/30 règles à jour' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v21 · retrait ballons + Manager' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -584,6 +584,11 @@ export default function App() {
         //     (Aucune perte : la fusion à l'écriture combinera nos ajouts au moment de sauvegarder.)
         if (!liveSyncRef.current) return
         if (selectedIdRef.current != null) return
+        // Si NOUS détenons le verrou d'édition → notre état local fait foi. On n'adopte pas une
+        // mise à jour distante (écho retardé ou appareil en lecture seule qui repousse une ancienne
+        // valeur), sinon elle pourrait annuler un retrait (ex. dernier ballon). serverRef est déjà
+        // mémorisé (plus haut) pour la fusion lorsqu'on ÉCRIRA après avoir lâché le verrou.
+        if (holdsLockRef()) { setGotRemote(true); hydrated.current = true; return }
         // 3c) FUSION À LA LECTURE : on combine l'état serveur avec NOS ajouts locaux pas encore
         //     sauvegardés (délai de sauvegarde). On ne perd ainsi JAMAIS un forfait en cours.
         const localNow = stateRef.current
@@ -624,8 +629,11 @@ export default function App() {
     }
 
     // Fusion 3-way : si un autre a modifié le serveur entre-temps, on combine au lieu d'écraser.
+    // MAIS si NOUS détenons le verrou d'édition, nous sommes le seul éditeur légitime → notre état
+    // local fait foi (sinon une valeur serveur en retard pourrait « ressusciter » un ballon qu'on
+    // vient de retirer, ex. retirer le dernier ballon d'un joueur).
     let outM = m, outC = c
-    if (hydrated.current) {
+    if (hydrated.current && !holdsLockRef()) {
       const merged = mergeForWrite(m, c)
       outM = merged.modules; outC = merged.coaches
       if (_diff(outM, m)) { mergeReflect.current = true; setModules(outM) }
@@ -967,6 +975,21 @@ export default function App() {
       }))
     } else {
       setActivePlayers(prev => prev.map(p => { if (p.id !== id || (p.goals || 0) <= 0) return p; const ng = p.goals - 1; return { ...p, goals: ng, ...unstamp(ng) } }))
+    }
+  }, [setActivePlayers])
+
+  // Tout retirer à un joueur (remet ses ballons à 0 d'un coup) — pratique pour corriger.
+  const clearGoals = useCallback((id) => {
+    if (!mayEdit(id)) return
+    if (coachesRef.current.some(c => c.id === id)) {
+      setModules(prev => prev.map(m => {
+        if (m.id !== activeModRef.current) return m
+        const cd = { ...(m.coachData || {}) }
+        if (cd[id]) cd[id] = { ...cd[id], goals: 0, reach2At: null, reach3At: null }
+        return { ...m, coachData: cd }
+      }))
+    } else {
+      setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, goals: 0, reach2At: null, reach3At: null } : p))
     }
   }, [setActivePlayers])
 
@@ -1427,7 +1450,7 @@ service cloud.firestore {
                     🏆 <strong>Élimination directe — bonus du jour.</strong> Le 1ᵉʳ à <strong>3 ballons</strong> gagne <strong>{activeModule.settings.bonusFirst3 ?? 50}€</strong>, les <strong>{activeModule.settings.bonus2Count ?? 4} suivants</strong> à <strong>2 ballons</strong> gagnent <strong>{activeModule.settings.bonus2 ?? 30}€</strong>. Si personne n'atteint 3, aucun bonus. Ballons remis à zéro chaque jour à minuit, gains cumulés jusqu'au 9 juillet.
                   </div>
                 )}
-                <Pitch players={modPlayers} coaches={activeCoaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} validatedValueById={validatedValueById} dashAuth={dashAuth} editableId={editableId} />
+                <Pitch players={modPlayers} coaches={activeCoaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onClearGoals={clearGoals} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} validatedValueById={validatedValueById} dashAuth={dashAuth} editableId={editableId} />
               </div>
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}

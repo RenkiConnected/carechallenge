@@ -3,7 +3,7 @@ import { getPlayerEarnings, getPlayerTotalEarnings, isTopScorer, hasHatTrick, DE
 
 function getInitials(name) { return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
 
-export default function PlayerModal({ player, allPeople, totalGoals, settings, validatedCount = 0, validatedValue = null, canEdit = true, onAddGoal, onRemoveGoal, onAddSlot, onUpdatePerson, onClose }) {
+export default function PlayerModal({ player, allPeople, totalGoals, settings, validatedCount = 0, validatedValue = null, canEdit = true, onAddGoal, onRemoveGoal, onClearGoals, onAddSlot, onUpdatePerson, onClose }) {
   const [editingName, setEditingName] = useState(false)
   const [nameVal, setNameVal] = useState(player.name)
   const [lastFilled, setLastFilled] = useState(null)
@@ -127,6 +127,13 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
             })}
             {canEdit && <button className="add-ball-btn" onClick={() => onAddSlot(player.id)} title="Ajouter un emplacement">+</button>}
           </div>
+          {canEdit && (player.goals || 0) > 0 && onClearGoals && (
+            <button
+              onClick={() => onClearGoals(player.id)}
+              style={{ marginTop:8, width:'100%', background:'rgba(255,68,68,.12)', border:'1px solid rgba(255,68,68,.35)', borderRadius:8, padding:'7px 10px', color:'#ff8a8a', cursor:'pointer', fontFamily:"'Barlow Condensed',sans-serif", fontSize:'.8rem', fontWeight:700, letterSpacing:.5 }}
+              title="Remettre ce joueur à zéro ballon"
+            >🗑 Tout retirer ({player.goals})</button>
+          )}
         </div>
 
         {/* Hat-trick progress */}

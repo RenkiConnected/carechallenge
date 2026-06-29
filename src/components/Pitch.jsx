@@ -68,7 +68,7 @@ function PitchSVGVertical() {
   )
 }
 
-export default function Pitch({ players, coaches, selectedId, onSelect, onUpdatePerson, onAddGoal, onRemoveGoal, onAddSlot, allPeople, totalGoals, settings, validatedById = {}, validatedValueById = null, dashAuth = false, editableId }) {
+export default function Pitch({ players, coaches, selectedId, onSelect, onUpdatePerson, onAddGoal, onRemoveGoal, onClearGoals, onAddSlot, allPeople, totalGoals, settings, validatedById = {}, validatedValueById = null, dashAuth = false, editableId }) {
   const pitchRef = useRef(null)
   const drag = useRef({ active:false, moved:false, id:null })
 
@@ -203,7 +203,7 @@ export default function Pitch({ players, coaches, selectedId, onSelect, onUpdate
           validatedCount={validatedById[selectedPerson.id] || 0}
           validatedValue={validatedValueById ? validatedValueById[selectedPerson.id] : null}
           canEdit={editableId === '*' || editableId === selectedPerson.id}
-          onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal}
+          onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} onClearGoals={onClearGoals}
           onAddSlot={onAddSlot} onUpdatePerson={onUpdatePerson}
           onClose={() => onSelect(null)}
         />
