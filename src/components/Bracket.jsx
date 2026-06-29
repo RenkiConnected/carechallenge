@@ -1,32 +1,33 @@
-// Tableau de la compétition — bracket à élimination directe (32 équipes).
-// On coche le vainqueur de chaque match : il avance automatiquement au tour suivant, jusqu'à la finale.
+// Tableau de la compétition — bracket à élimination directe (32 équipes), disposition miroir
+// centrée façon Coupe du Monde, avec la coupe au centre. Drapeaux en images (flagcdn) pour une
+// identification facile, avec repli sur le code pays si l'image ne charge pas.
+import wc2026 from '../assets/wc2026.webp'
 
 export const BRACKET_TEAMS = [
-  // Côté gauche (haut → bas)
-  { id:'ger', name:'Allemagne',       flag:'🇩🇪' }, { id:'par', name:'Paraguay',       flag:'🇵🇾' },
-  { id:'fra', name:'France',          flag:'🇫🇷' }, { id:'swe', name:'Suède',          flag:'🇸🇪' },
-  { id:'rsa', name:'Afrique du Sud',  flag:'🇿🇦' }, { id:'can', name:'Canada',         flag:'🇨🇦' },
-  { id:'ned', name:'Pays-Bas',        flag:'🇳🇱' }, { id:'mar', name:'Maroc',          flag:'🇲🇦' },
-  { id:'por', name:'Portugal',        flag:'🇵🇹' }, { id:'cro', name:'Croatie',        flag:'🇭🇷' },
-  { id:'esp', name:'Espagne',         flag:'🇪🇸' }, { id:'aut', name:'Autriche',       flag:'🇦🇹' },
-  { id:'usa', name:'États-Unis',      flag:'🇺🇸' }, { id:'bih', name:'Bosnie',         flag:'🇧🇦' },
-  { id:'bel', name:'Belgique',        flag:'🇧🇪' }, { id:'sen', name:'Sénégal',        flag:'🇸🇳' },
-  // Côté droit (haut → bas)
-  { id:'bra', name:'Brésil',          flag:'🇧🇷' }, { id:'jpn', name:'Japon',          flag:'🇯🇵' },
-  { id:'civ', name:"Côte d'Ivoire",   flag:'🇨🇮' }, { id:'nor', name:'Norvège',        flag:'🇳🇴' },
-  { id:'mex', name:'Mexique',         flag:'🇲🇽' }, { id:'ecu', name:'Équateur',       flag:'🇪🇨' },
-  { id:'eng', name:'Angleterre',      flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿' }, { id:'cod', name:'RD Congo',       flag:'🇨🇩' },
-  { id:'arg', name:'Argentine',       flag:'🇦🇷' }, { id:'cpv', name:'Cap-Vert',       flag:'🇨🇻' },
-  { id:'aus', name:'Australie',       flag:'🇦🇺' }, { id:'egy', name:'Égypte',         flag:'🇪🇬' },
-  { id:'sui', name:'Suisse',          flag:'🇨🇭' }, { id:'alg', name:'Algérie',        flag:'🇩🇿' },
-  { id:'col', name:'Colombie',        flag:'🇨🇴' }, { id:'gha', name:'Ghana',          flag:'🇬🇭' },
+  // Côté gauche (haut → bas) — 16 équipes
+  { id:'ger', name:'Allemagne',      iso:'de' }, { id:'par', name:'Paraguay',      iso:'py' },
+  { id:'fra', name:'France',         iso:'fr' }, { id:'swe', name:'Suède',         iso:'se' },
+  { id:'rsa', name:'Afrique du Sud', iso:'za' }, { id:'can', name:'Canada',        iso:'ca' },
+  { id:'ned', name:'Pays-Bas',       iso:'nl' }, { id:'mar', name:'Maroc',         iso:'ma' },
+  { id:'por', name:'Portugal',       iso:'pt' }, { id:'cro', name:'Croatie',       iso:'hr' },
+  { id:'esp', name:'Espagne',        iso:'es' }, { id:'aut', name:'Autriche',      iso:'at' },
+  { id:'usa', name:'États-Unis',     iso:'us' }, { id:'bih', name:'Bosnie',        iso:'ba' },
+  { id:'bel', name:'Belgique',       iso:'be' }, { id:'sen', name:'Sénégal',       iso:'sn' },
+  // Côté droit (haut → bas) — 16 équipes
+  { id:'bra', name:'Brésil',         iso:'br' }, { id:'jpn', name:'Japon',         iso:'jp' },
+  { id:'civ', name:"Côte d'Ivoire",  iso:'ci' }, { id:'nor', name:'Norvège',       iso:'no' },
+  { id:'mex', name:'Mexique',        iso:'mx' }, { id:'ecu', name:'Équateur',      iso:'ec' },
+  { id:'eng', name:'Angleterre',     iso:'gb-eng' }, { id:'cod', name:'RD Congo',  iso:'cd' },
+  { id:'arg', name:'Argentine',      iso:'ar' }, { id:'cpv', name:'Cap-Vert',      iso:'cv' },
+  { id:'aus', name:'Australie',      iso:'au' }, { id:'egy', name:'Égypte',        iso:'eg' },
+  { id:'sui', name:'Suisse',         iso:'ch' }, { id:'alg', name:'Algérie',       iso:'dz' },
+  { id:'col', name:'Colombie',       iso:'co' }, { id:'gha', name:'Ghana',         iso:'gh' },
 ]
 
-const ROUND_NAMES = ['16ᵉ de finale', '8ᵉ de finale', 'Quarts de finale', 'Demi-finales', 'Finale']
-
+const ROUND_NAMES = ['16ᵉ de finale', '8ᵉ de finale', 'Quarts', 'Demi-finales', 'Finale']
 const TEAM_BY_ID = Object.fromEntries(BRACKET_TEAMS.map(t => [t.id, t]))
+const codeOf = (t) => (t.iso || '').replace('gb-', '').slice(0, 2).toUpperCase()
 
-// Construit tous les tours à partir des vainqueurs cochés.
 export function buildRounds(winners = {}) {
   const rounds = []
   let matches = []
@@ -46,26 +47,40 @@ export function buildRounds(winners = {}) {
   return rounds
 }
 
-// Quand on change un vainqueur, on efface les choix en aval (le chemin vers la finale) devenus invalides.
 export function setWinner(winners, round, idx, teamId) {
   const w = { ...winners }
-  if (w[`r${round}m${idx}`] === teamId) { delete w[`r${round}m${idx}`]; } // re-clic = annuler
+  if (w[`r${round}m${idx}`] === teamId) delete w[`r${round}m${idx}`] // re-clic = annuler
   else w[`r${round}m${idx}`] = teamId
   let r = round + 1, i = Math.floor(idx / 2)
   while (r < ROUND_NAMES.length) { delete w[`r${r}m${i}`]; i = Math.floor(i / 2); r++ }
   return w
 }
 
-function TeamSlot({ team, isWinner, isLoser, canEdit, onPick }) {
+function Flag({ team }) {
+  if (!team) return <span className="bk-flag-ph">—</span>
+  return (
+    <span className="bk-flag">
+      <img
+        src={`https://flagcdn.com/w40/${team.iso}.png`}
+        srcSet={`https://flagcdn.com/w80/${team.iso}.png 2x`}
+        alt={team.name} loading="lazy"
+        onError={e => { e.target.style.display = 'none'; const s = e.target.nextSibling; if (s) s.style.display = 'inline-flex' }}
+      />
+      <span className="bk-code" style={{ display: 'none' }}>{codeOf(team)}</span>
+    </span>
+  )
+}
+
+function TeamSlot({ team, isWinner, isLoser, canEdit, mirror, onPick }) {
   return (
     <button
       type="button"
-      className={`bk-team${isWinner ? ' bk-win' : ''}${isLoser ? ' bk-lose' : ''}${!team ? ' bk-empty' : ''}`}
+      className={`bk-team${mirror ? ' bk-mirror' : ''}${isWinner ? ' bk-win' : ''}${isLoser ? ' bk-lose' : ''}${!team ? ' bk-empty' : ''}`}
       disabled={!canEdit || !team}
       onClick={() => team && onPick()}
       title={!team ? 'En attente du tour précédent' : canEdit ? 'Cocher le vainqueur' : ''}
     >
-      <span className="bk-flag">{team ? team.flag : '—'}</span>
+      <Flag team={team} />
       <span className="bk-name">{team ? team.name : '—'}</span>
       {isWinner && <span className="bk-check">✓</span>}
     </button>
@@ -74,21 +89,48 @@ function TeamSlot({ team, isWinner, isLoser, canEdit, onPick }) {
 
 export default function Bracket({ winners = {}, canEdit = false, onPick }) {
   const rounds = buildRounds(winners)
-  const champion = winners[`r${rounds.length - 1}m0`] ? TEAM_BY_ID[winners[`r${rounds.length - 1}m0`]] : null
+  const finalRound = rounds.length - 1
+  const champion = winners[`r${finalRound}m0`] ? TEAM_BY_ID[winners[`r${finalRound}m0`]] : null
+
+  const Column = ({ r, matches, offset, side, title }) => (
+    <div className="bk-col">
+      <div className="bk-col-title">{title}</div>
+      <div className="bk-col-matches">
+        {matches.map((mt, j) => {
+          const gIdx = offset + j
+          const win = winners[`r${r}m${gIdx}`]
+          const mirror = side === 'right'
+          return (
+            <div key={j} className={`bk-match bk-${side}`}>
+              <TeamSlot team={mt.a} mirror={mirror} isWinner={win && mt.a && win === mt.a.id} isLoser={win && mt.a && win !== mt.a.id} canEdit={canEdit} onPick={() => onPick(r, gIdx, mt.a.id)} />
+              <TeamSlot team={mt.b} mirror={mirror} isWinner={win && mt.b && win === mt.b.id} isLoser={win && mt.b && win !== mt.b.id} canEdit={canEdit} onPick={() => onPick(r, gIdx, mt.b.id)} />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+
+  const half = (r) => rounds[r].length / 2
+  const leftCols = [0, 1, 2, 3]
+  const rightCols = [3, 2, 1, 0]
+  const fmt = rounds[finalRound][0]
+  const fwin = winners[`r${finalRound}m0`]
 
   return (
     <div className="bracket-wrap">
       <div className="bracket-head">
         <div className="bracket-title">🏆 TABLEAU DE LA COMPÉTITION</div>
         <div className="bracket-sub">
-          {canEdit ? 'Coche le vainqueur de chaque match : il avance au tour suivant, jusqu’à la finale.' : 'Le vainqueur de chaque match est désigné par le manager.'}
+          {canEdit ? 'Coche le vainqueur de chaque match : il avance jusqu’à la finale.' : 'Le vainqueur de chaque match est désigné par le manager.'}
+          <br/>Fais défiler horizontalement et verticalement pour tout voir.
         </div>
       </div>
 
       {champion && (
         <div className="bracket-champion">
           <span className="bc-cup">🏆</span>
-          <span className="bc-flag">{champion.flag}</span>
+          <Flag team={champion} />
           <div>
             <div className="bc-label">CHAMPION</div>
             <div className="bc-name">{champion.name}</div>
@@ -97,22 +139,22 @@ export default function Bracket({ winners = {}, canEdit = false, onPick }) {
       )}
 
       <div className="bracket-scroll">
-        <div className="bracket-cols">
-          {rounds.map((matches, r) => (
-            <div key={r} className="bk-col">
-              <div className="bk-col-title">{ROUND_NAMES[r]}</div>
-              <div className="bk-col-matches">
-                {matches.map((mt, i) => {
-                  const win = winners[`r${r}m${i}`]
-                  return (
-                    <div key={i} className="bk-match">
-                      <TeamSlot team={mt.a} isWinner={win && mt.a && win === mt.a.id} isLoser={win && mt.a && win !== mt.a.id} canEdit={canEdit} onPick={() => onPick(r, i, mt.a.id)} />
-                      <TeamSlot team={mt.b} isWinner={win && mt.b && win === mt.b.id} isLoser={win && mt.b && win !== mt.b.id} canEdit={canEdit} onPick={() => onPick(r, i, mt.b.id)} />
-                    </div>
-                  )
-                })}
-              </div>
+        <div className="bracket-mirror">
+          {leftCols.map(r => (
+            <Column key={`L${r}`} r={r} matches={rounds[r].slice(0, half(r))} offset={0} side="left" title={ROUND_NAMES[r]} />
+          ))}
+
+          <div className="bk-center">
+            <img className="bk-trophy" src={wc2026} alt="Coupe du Monde 2026" />
+            <div className="bk-final-title">FINALE</div>
+            <div className="bk-match bk-final">
+              <TeamSlot team={fmt.a} isWinner={fwin && fmt.a && fwin === fmt.a.id} isLoser={fwin && fmt.a && fwin !== fmt.a.id} canEdit={canEdit} onPick={() => onPick(finalRound, 0, fmt.a.id)} />
+              <TeamSlot team={fmt.b} isWinner={fwin && fmt.b && fwin === fmt.b.id} isLoser={fwin && fmt.b && fwin !== fmt.b.id} canEdit={canEdit} onPick={() => onPick(finalRound, 0, fmt.b.id)} />
             </div>
+          </div>
+
+          {rightCols.map(r => (
+            <Column key={`R${r}`} r={r} matches={rounds[r].slice(half(r))} offset={half(r)} side="right" title={ROUND_NAMES[r]} />
           ))}
         </div>
       </div>

@@ -924,44 +924,70 @@ img, svg, canvas { max-width:100%; }
 .prono-knockout .match-vs{ animation: ko-vs 1.6s ease-in-out infinite; }
 @keyframes ko-vs{ 0%,100%{ transform:scale(1) } 50%{ transform:scale(1.25); color:#ffd24a } }
 
-/* ─── TABLEAU DE LA COMPÉTITION (bracket) ─── */
-.bracket-wrap{ padding:6px 2px 24px; }
-.bracket-head{ text-align:center; margin-bottom:12px; }
+/* ─── TABLEAU DE LA COMPÉTITION (bracket miroir, centré, responsive) ─── */
+.bracket-wrap{ padding:6px 0 28px; }
+.bracket-head{ text-align:center; margin-bottom:12px; padding:0 10px; }
 .bracket-title{ font-family:'Bebas Neue',sans-serif; font-size:1.5rem; letter-spacing:2px; color:var(--gold); }
-.bracket-sub{ font-family:'Barlow Condensed',sans-serif; font-size:.82rem; color:rgba(240,244,255,.6); margin-top:2px; }
+.bracket-sub{ font-family:'Barlow Condensed',sans-serif; font-size:.8rem; color:rgba(240,244,255,.6); margin-top:2px; line-height:1.35; }
 .bracket-champion{
   display:flex; align-items:center; gap:12px; justify-content:center;
-  margin:0 auto 14px; max-width:420px; padding:10px 16px; border-radius:14px;
+  margin:0 auto 16px; max-width:440px; padding:10px 16px; border-radius:14px;
   background:linear-gradient(135deg, rgba(255,215,0,.18), rgba(255,165,0,.08));
   border:1px solid rgba(255,215,0,.5); box-shadow:0 4px 20px rgba(255,215,0,.25);
 }
-.bracket-champion .bc-cup{ font-size:2rem; }
-.bracket-champion .bc-flag{ font-size:1.7rem; }
+.bracket-champion .bc-cup{ font-size:1.9rem; }
 .bracket-champion .bc-label{ font-family:'Barlow Condensed',sans-serif; font-size:.72rem; letter-spacing:2px; color:rgba(240,244,255,.6); }
 .bracket-champion .bc-name{ font-family:'Bebas Neue',sans-serif; font-size:1.5rem; letter-spacing:1px; color:var(--gold); }
-.bracket-scroll{ overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; padding-bottom:10px; }
-.bracket-cols{ display:flex; gap:14px; min-width:max-content; padding:0 4px; }
-.bk-col{ display:flex; flex-direction:column; min-width:148px; }
+
+/* Zone défilable : horizontale ET verticale, pour tout voir sur mobile comme sur PC */
+.bracket-scroll{
+  overflow:auto; -webkit-overflow-scrolling:touch;
+  max-height:calc(100vh - 250px); padding:4px 6px 14px;
+  border-radius:12px;
+}
+/* Disposition miroir : 4 colonnes gauche + centre (coupe+finale) + 4 colonnes droite */
+.bracket-mirror{ display:flex; align-items:stretch; gap:10px; width:max-content; margin:0 auto; }
+.bk-col{ display:flex; flex-direction:column; min-width:132px; }
 .bk-col-title{
-  font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:.74rem; letter-spacing:1px;
+  font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:.72rem; letter-spacing:1px;
   text-transform:uppercase; color:var(--teal); text-align:center; margin-bottom:8px; white-space:nowrap;
 }
-.bk-col-matches{ display:flex; flex-direction:column; justify-content:space-around; flex:1; gap:10px; }
+.bk-col-matches{ flex:1; display:flex; flex-direction:column; justify-content:space-around; gap:8px; }
 .bk-match{
-  display:flex; flex-direction:column; gap:3px; background:rgba(255,255,255,.035);
-  border:1px solid rgba(255,255,255,.08); border-radius:9px; padding:4px;
+  display:flex; flex-direction:column; gap:3px; background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.09); border-radius:9px; padding:4px;
 }
 .bk-team{
-  display:flex; align-items:center; gap:6px; width:100%; text-align:left;
-  background:rgba(255,255,255,.04); border:1px solid transparent; border-radius:6px;
-  padding:5px 7px; cursor:pointer; color:var(--text); font-family:'Barlow Condensed',sans-serif;
-  font-size:.82rem; transition:all .15s;
+  display:flex; align-items:center; gap:7px; width:100%; text-align:left;
+  background:rgba(255,255,255,.05); border:1.5px solid transparent; border-radius:7px;
+  padding:6px 8px; cursor:pointer; color:var(--text); font-family:'Barlow Condensed',sans-serif;
+  font-size:.85rem; line-height:1.05; transition:all .15s; min-height:34px;
 }
+.bk-team.bk-mirror{ flex-direction:row-reverse; text-align:right; }
 .bk-team:disabled{ cursor:default; }
-.bk-team .bk-flag{ font-size:1rem; flex-shrink:0; }
-.bk-team .bk-name{ flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.bk-team .bk-check{ color:#2ecc71; font-weight:900; }
+.bk-flag{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:18px; flex-shrink:0; border-radius:3px; overflow:hidden; box-shadow:0 0 0 1px rgba(255,255,255,.15); background:rgba(255,255,255,.06); }
+.bk-flag img{ width:26px; height:18px; object-fit:cover; display:block; }
+.bk-flag .bk-code{ font-size:.66rem; font-weight:800; color:#cfd6e6; letter-spacing:.5px; }
+.bk-flag-ph{ display:inline-flex; width:26px; justify-content:center; color:rgba(255,255,255,.3); flex-shrink:0; }
+.bk-name{ flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+.bk-check{ color:#2ecc71; font-weight:900; }
 .bk-team:not(:disabled):hover{ background:rgba(0,229,204,.12); border-color:rgba(0,229,204,.4); }
-.bk-team.bk-win{ background:rgba(46,204,113,.18); border-color:rgba(46,204,113,.55); font-weight:700; }
-.bk-team.bk-lose{ opacity:.4; text-decoration:line-through; }
-.bk-team.bk-empty{ opacity:.35; font-style:italic; }
+.bk-team.bk-win{ background:rgba(46,204,113,.2); border-color:rgba(46,204,113,.6); }
+.bk-team.bk-win .bk-name{ color:#7bed9f; }
+.bk-team.bk-lose{ opacity:.4; }
+.bk-team.bk-lose .bk-name{ text-decoration:line-through; }
+.bk-team.bk-empty{ opacity:.4; font-style:italic; }
+
+/* Centre : la coupe du monde au-dessus de la finale */
+.bk-center{ display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:170px; padding:0 6px; }
+.bk-trophy{ width:96px; height:auto; filter:drop-shadow(0 6px 18px rgba(255,196,0,.35)); margin-bottom:8px; }
+.bk-final-title{ font-family:'Bebas Neue',sans-serif; font-size:1.3rem; letter-spacing:3px; color:var(--gold); margin-bottom:6px; }
+.bk-match.bk-final{ min-width:160px; border-color:rgba(255,215,0,.5); background:rgba(255,215,0,.06); box-shadow:0 0 18px rgba(255,196,0,.18); }
+
+@media (max-width:640px){
+  .bracket-scroll{ max-height:calc(100vh - 210px); }
+  .bk-col{ min-width:118px; }
+  .bk-team{ font-size:.8rem; padding:5px 6px; min-height:32px; }
+  .bk-center{ min-width:150px; }
+  .bk-trophy{ width:78px; }
+}

@@ -308,7 +308,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v22 · France-Suède 16e + Tableau' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v23 · Tableau centré + drapeaux' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
