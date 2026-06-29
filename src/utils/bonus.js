@@ -62,6 +62,39 @@ export function getPronoEarnings(player) {
   return round2((player.validatedPronos || 0) * PRONO_BONUS)
 }
 
+// ─── ÉLIMINATION DIRECTE : bonus QUOTIDIEN ─────────────────────────────────
+// Règle d'une journée : le 1er à atteindre 3 ballons gagne bonusFirst3 (50€).
+// Puis les bonus2Count (4) suivants à atteindre ≥2 ballons gagnent bonus2 (30€) chacun.
+// Si PERSONNE n'atteint 3 ballons → aucun bonus ce jour-là.
+// L'ordre est donné par reach3At / reach2At (timestamps posés à l'atteinte du 3e / 2e ballon).
+export function computeElimDailyBonus(people, settings = {}) {
+  const FIRST3 = settings.bonusFirst3 ?? 50
+  const B2 = settings.bonus2 ?? 30
+  const N2 = settings.bonus2Count ?? 4
+  const earnings = {}
+  const reached3 = (people || []).filter(p => (p.goals || 0) >= 3)
+    .sort((a, b) => (a.reach3At || 9e15) - (b.reach3At || 9e15))
+  if (!reached3.length) return earnings // personne n'a fait 3 → aucun bonus
+  const first = reached3[0]
+  earnings[String(first.id)] = FIRST3
+  const others = (people || [])
+    .filter(p => String(p.id) !== String(first.id) && (p.goals || 0) >= 2)
+    .sort((a, b) => (a.reach2At || 9e15) - (b.reach2At || 9e15))
+    .slice(0, N2)
+  others.forEach(p => { earnings[String(p.id)] = B2 })
+  return earnings
+}
+
+// Total cumulé d'un module Élimination directe = somme des journées figées (elimHistory)
+// + le bonus LIVE du jour en cours (calculé sur les ballons actuels).
+export function elimTotalsById(mod) {
+  const totals = {}
+  const add = (id, amt) => { totals[String(id)] = (totals[String(id)] || 0) + amt }
+  const hist = mod.elimHistory || {}
+  Object.values(hist).forEach(day => Object.entries(day || {}).forEach(([id, amt]) => add(id, amt)))
+  return totals
+}
+
 /**
  * Bonus pronostic GLOBAL par joueur (toutes les parties "pronostic" confondues).
  * Retourne un objet { [id]: montant }. Sert à ajouter le bonus au gain total
@@ -142,6 +175,28 @@ export function buildCombinedRanking(modules, coaches) {
     if (!mod.type || mod.type === 'forfaits') {
       const totalGoals = allPeople.reduce((s, p) => s + (p.goals || 0), 0)
       const s = { ...DEFAULT_SETTINGS, ...mod.settings }
+
+      // ── Module ÉLIMINATION DIRECTE (bonus quotidien) ──
+      if (mod.settings?.dailyBonus) {
+        const histTotals = elimTotalsById(mod)              // journées figées
+        const liveToday = computeElimDailyBonus(allPeople, mod.settings) // jour en cours
+        const ids = new Set([...Object.keys(histTotals), ...Object.keys(liveToday), ...allPeople.map(p => String(p.id))])
+        ids.forEach(key => {
+          const person = allPeople.find(p => String(p.id) === key) || {}
+          if (!map.has(key)) {
+            map.set(key, { id:person.id ?? key, name:person.name, color:person.color, isCoach:person.isCoach, role:person.role,
+              totalGoals:0, totalPronoWins:0, totalEarnings:0, forfaitEarnings:0, pronoEarningsTotal:0, moduleDetails:[] })
+          }
+          const entry = map.get(key)
+          if (person.name) { entry.name = person.name; entry.color = person.color }
+          const gain = (histTotals[key] || 0) + (liveToday[key] || 0)
+          entry.totalEarnings += gain
+          entry.pronoEarningsTotal += gain // affiché comme "bonus" (hors forfaits au taux)
+          if (gain > 0) entry.moduleDetails.push({ type:'elim', name:mod.name, goals:person.goals || 0, earnings:gain })
+        })
+        return // module traité, on ne fait pas le calcul "forfaits au taux"
+      }
+
       const isCanon = mod.id === canonId
       const isPoules = mod.settings?.phase === 'poules'
       const vmap = isPoules ? validatedPoules : (isCanon ? validatedPrep : null)

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { getPlayerEarnings, getPlayerTotalEarnings, isTopScorer, hasHatTrick, DEFAULT_SETTINGS } from '../utils/bonus'
+import { getPlayerEarnings, getPlayerTotalEarnings, isTopScorer, hasHatTrick, DEFAULT_SETTINGS, computeElimDailyBonus } from '../utils/bonus'
 import { exportPdf } from '../utils/exportPdf'
 
 const PASSWORD = 'Raphael2232'
@@ -46,8 +46,9 @@ function PlayerRow({ player, onUpdate, onAddGoal, onRemoveGoal, onRemove, allPeo
   const [showColor, setShowColor] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
 
-  const earnings = getPlayerTotalEarnings(player, allPeople, totalGoals, settings, validatedCount, validatedValue)
-  const isTop = isTopScorer(player, allPeople, settings)
+  const daily = !!settings.dailyBonus
+  const earnings = daily ? (computeElimDailyBonus(allPeople, settings)[String(player.id)] || 0) : getPlayerTotalEarnings(player, allPeople, totalGoals, settings, validatedCount, validatedValue)
+  const isTop = daily ? false : isTopScorer(player, allPeople, settings)
 
   const handleAdd  = useCallback(() => onAddGoal(player.id), [onAddGoal, player.id])
   const handleRem  = useCallback(() => onRemoveGoal(player.id), [onRemoveGoal, player.id])
@@ -231,7 +232,14 @@ export default function Dashboard({
   const isFedActive = isCanonActive || activeModForVp?.settings?.phase === 'poules'
   const vpFor = (id) => isFedActive ? (validatedById[id]||0) : 0
   const vvalFor = (id) => isFedActive ? (validatedValueById[id] ?? null) : null
-  const totalEarnings = allPeople.reduce((sum,p) => sum+getPlayerTotalEarnings(p,allPeople,totalGoals,s,vpFor(p.id),vvalFor(p.id)), 0)
+  const isDailyActive = !!activeModForVp?.settings?.dailyBonus
+  const dailyMapActive = isDailyActive ? computeElimDailyBonus(allPeople, s) : null
+  const elimFirst3D = s.bonusFirst3 ?? 50, elimB2D = s.bonus2 ?? 30, elimN2D = s.bonus2Count ?? 4
+  const triplesD = dailyMapActive ? Object.values(dailyMapActive).filter(v=>v===elimFirst3D).length : 0
+  const doublesD = dailyMapActive ? Object.values(dailyMapActive).filter(v=>v===elimB2D).length : 0
+  const totalEarnings = isDailyActive
+    ? allPeople.reduce((sum,p) => sum + (dailyMapActive[String(p.id)] || 0), 0)
+    : allPeople.reduce((sum,p) => sum+getPlayerTotalEarnings(p,allPeople,totalGoals,s,vpFor(p.id),vvalFor(p.id)), 0)
   const htCount = allPeople.filter(p=>hasHatTrick(p)).length
   const topPlayer = [...allPeople].sort((a,b)=>(b.goals||0)-(a.goals||0))[0]
   const activeMod = modules.find(m => m.id === activeModId) || modules[0]
@@ -267,12 +275,21 @@ export default function Dashboard({
       <div className="dash-section">
         <div className="dash-section-title">Aperçu — {activeMod?.name}</div>
         <div className="dash-stats-grid">
-          <div className="dash-stat-card"><div className="dsc-num">{totalGoals}</div><div className="dsc-label">Forfaits</div></div>
-          <div className="dash-stat-card"><div className="dsc-num" style={{ color:'var(--teal)', fontSize:'1.4rem' }}>{totalEarnings.toFixed(2)}€</div><div className="dsc-label">Primes</div></div>
-          <div className="dash-stat-card"><div className="dsc-num" style={{ color:tierRate===s.tier3Rate?'var(--gold)':tierRate===s.tier2Rate?'var(--teal)':'var(--tier1)' }}>{tierRate}€</div><div className="dsc-label">Taux actuel</div></div>
-          <div className="dash-stat-card"><div className="dsc-num" style={{ color:'#ff6b35' }}>{htCount}</div><div className="dsc-label">Hat-Tricks 👑</div></div>
+          <div className="dash-stat-card"><div className="dsc-num">{totalGoals}</div><div className="dsc-label">{isDailyActive ? 'Ballons auj.' : 'Forfaits'}</div></div>
+          <div className="dash-stat-card"><div className="dsc-num" style={{ color:'var(--teal)', fontSize:'1.4rem' }}>{totalEarnings.toFixed(2)}€</div><div className="dsc-label">{isDailyActive ? 'Bonus du jour' : 'Primes'}</div></div>
+          {isDailyActive ? (
+            <>
+              <div className="dash-stat-card"><div className="dsc-num" style={{ color:triplesD>0?'#ff6b35':'rgba(240,244,255,.3)' }}>{triplesD}/1</div><div className="dsc-label">Triple · {elimFirst3D}€</div></div>
+              <div className="dash-stat-card"><div className="dsc-num" style={{ color:doublesD>0?'#00e5cc':'rgba(240,244,255,.3)' }}>{doublesD}/{elimN2D}</div><div className="dsc-label">Double · {elimB2D}€</div></div>
+            </>
+          ) : (
+            <>
+              <div className="dash-stat-card"><div className="dsc-num" style={{ color:tierRate===s.tier3Rate?'var(--gold)':tierRate===s.tier2Rate?'var(--teal)':'var(--tier1)' }}>{tierRate}€</div><div className="dsc-label">Taux actuel</div></div>
+              <div className="dash-stat-card"><div className="dsc-num" style={{ color:'#ff6b35' }}>{htCount}</div><div className="dsc-label">Hat-Tricks 👑</div></div>
+            </>
+          )}
         </div>
-        {topPlayer && (topPlayer.goals||0) > 0 && (
+        {!isDailyActive && topPlayer && (topPlayer.goals||0) > 0 && (
           <div style={{ marginTop:10, background:'rgba(255,107,53,.08)', border:'1px solid rgba(255,107,53,.2)', borderRadius:8, padding:'9px 12px', display:'flex', alignItems:'center', gap:10 }}>
             <span style={{ fontSize:'1.2rem' }}>⭐</span>
             <div style={{ flex:1, fontFamily:"'Barlow Condensed',sans-serif" }}>
@@ -300,17 +317,30 @@ export default function Dashboard({
       {!isPronoMod && (
         <div className="dash-section">
           <div className="dash-section-title">Paramètres des primes — {activeMod?.name}</div>
-          <SettingField label="Taux Palier 1 (base)" desc="Prime par forfait jusqu'au seuil" value={s.tier1Rate} onChange={v=>onUpdateSettings({tier1Rate:v})} unit="€/forfait" />
-          <SettingField label="Taux Palier 2" value={s.tier2Rate} onChange={v=>onUpdateSettings({tier2Rate:v})} unit="€/forfait" />
-          <SettingField label="Taux Palier 3" desc="Si individuel ≥ 3 après seuil 2" value={s.tier3Rate} onChange={v=>onUpdateSettings({tier3Rate:v})} unit="€/forfait" />
-          <SettingField label="Prime Top Buteur" value={s.topScorerRate} onChange={v=>onUpdateSettings({topScorerRate:v})} unit="€/forfait" />
-          <div style={{ height:1, background:'rgba(255,255,255,.07)', margin:'8px 0' }} />
-          <SettingField label="Seuil palier 1→2" value={s.tier1Threshold} onChange={v=>onUpdateSettings({tier1Threshold:v})} unit="forfaits" step={1} min={1} />
-          <SettingField label="Seuil palier 2→3" value={s.tier2Threshold} onChange={v=>onUpdateSettings({tier2Threshold:v})} unit="forfaits" step={1} min={1} />
-          <div style={{ height:1, background:'rgba(255,255,255,.07)', margin:'8px 0' }} />
-          <Toggle label="🏁 Forcer le bonus Top Buteur (20€/forfait)"
-            desc={s.phaseEnded?'✅ Forcé : le meilleur buteur unique a tous ses forfaits à 20€':'⚡ Automatique dès que le total dépasse 50 forfaits collectifs · ou forcer ici'}
-            checked={!!s.phaseEnded} onChange={v=>onUpdateSettings({phaseEnded:v})} />
+          {isDailyActive ? (
+            <>
+              <SettingField label="Bonus 1er à 3 ballons (triple)" desc="Pour le 1er joueur à atteindre 3 ballons dans la journée" value={s.bonusFirst3 ?? 50} onChange={v=>onUpdateSettings({bonusFirst3:v})} unit="€" />
+              <SettingField label="Bonus 2 ballons (double)" desc="Pour les joueurs suivants à atteindre 2 ballons" value={s.bonus2 ?? 30} onChange={v=>onUpdateSettings({bonus2:v})} unit="€" />
+              <SettingField label="Nombre de doubles payés" desc="Combien de joueurs touchent le bonus double (après le triple)" value={s.bonus2Count ?? 4} onChange={v=>onUpdateSettings({bonus2Count:v})} unit="joueurs" step={1} min={0} />
+              <div style={{ marginTop:8, fontFamily:"'Barlow Condensed',sans-serif", fontSize:'.76rem', color:'rgba(240,244,255,.5)', lineHeight:1.5 }}>
+                ⚠️ Aucun bonus si personne n'atteint 3 ballons. Les ballons sont remis à zéro chaque jour à minuit, les gains se cumulent jusqu'au 9 juillet.
+              </div>
+            </>
+          ) : (
+            <>
+              <SettingField label="Taux Palier 1 (base)" desc="Prime par forfait jusqu'au seuil" value={s.tier1Rate} onChange={v=>onUpdateSettings({tier1Rate:v})} unit="€/forfait" />
+              <SettingField label="Taux Palier 2" value={s.tier2Rate} onChange={v=>onUpdateSettings({tier2Rate:v})} unit="€/forfait" />
+              <SettingField label="Taux Palier 3" desc="Si individuel ≥ 3 après seuil 2" value={s.tier3Rate} onChange={v=>onUpdateSettings({tier3Rate:v})} unit="€/forfait" />
+              <SettingField label="Prime Top Buteur" value={s.topScorerRate} onChange={v=>onUpdateSettings({topScorerRate:v})} unit="€/forfait" />
+              <div style={{ height:1, background:'rgba(255,255,255,.07)', margin:'8px 0' }} />
+              <SettingField label="Seuil palier 1→2" value={s.tier1Threshold} onChange={v=>onUpdateSettings({tier1Threshold:v})} unit="forfaits" step={1} min={1} />
+              <SettingField label="Seuil palier 2→3" value={s.tier2Threshold} onChange={v=>onUpdateSettings({tier2Threshold:v})} unit="forfaits" step={1} min={1} />
+              <div style={{ height:1, background:'rgba(255,255,255,.07)', margin:'8px 0' }} />
+              <Toggle label="🏁 Forcer le bonus Top Buteur (20€/forfait)"
+                desc={s.phaseEnded?'✅ Forcé : le meilleur buteur unique a tous ses forfaits à 20€':'⚡ Automatique dès que le total dépasse 50 forfaits collectifs · ou forcer ici'}
+                checked={!!s.phaseEnded} onChange={v=>onUpdateSettings({phaseEnded:v})} />
+            </>
+          )}
         </div>
       )}
 

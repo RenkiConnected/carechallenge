@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import {
   getPlayerEarnings, getPlayerTotalEarnings, getPronoEarnings, buildCombinedRanking,
-  isTopScorer, hasHatTrick, getCurrentTier, DEFAULT_SETTINGS, PRONO_BONUS
+  isTopScorer, hasHatTrick, getCurrentTier, DEFAULT_SETTINGS, PRONO_BONUS,
+  computeElimDailyBonus, elimTotalsById
 } from '../utils/bonus'
 
 function getInitials(name) { return name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) }
@@ -176,6 +177,64 @@ function ForfaitModuleView({ mod, coaches, validatedById = {}, validatedValueByI
   )
 }
 
+// ── Vue Élimination directe (bonus quotidien cumulé) ─────────────────────────
+function ElimModuleView({ mod, coaches }) {
+  const moduleCoaches = (coaches||[]).map(c => ({ ...c, goals: mod.coachData?.[c.id]?.goals||0, reach2At: mod.coachData?.[c.id]?.reach2At, reach3At: mod.coachData?.[c.id]?.reach3At }))
+  const allPeople = [...(mod.players||[]), ...moduleCoaches]
+  const hist = elimTotalsById(mod)
+  const live = computeElimDailyBonus(allPeople, mod.settings)
+  const first3 = mod.settings?.bonusFirst3 ?? 50
+  const b2 = mod.settings?.bonus2 ?? 30
+  const n2 = mod.settings?.bonus2Count ?? 4
+  const rows = allPeople.map(p => ({
+    ...p,
+    total: (hist[String(p.id)]||0) + (live[String(p.id)]||0),
+    today: live[String(p.id)]||0,
+  })).sort((a,b) => b.total - a.total || (b.goals||0)-(a.goals||0) || a.name.localeCompare(b.name))
+  const grand = rows.reduce((s,r)=>s+r.total,0)
+  const nbDays = Object.keys(mod.elimHistory||{}).length
+  return (
+    <div className="lb-module-block">
+      <div className="lb-module-header">
+        <span>🏆 {mod.name}</span>
+        <span className="lb-module-meta">1er à 3 ballons : {first3}€ · {n2} suivants à 2 ballons : {b2}€</span>
+      </div>
+      <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:'.74rem', color:'rgba(240,244,255,.55)', margin:'2px 0 8px', textAlign:'center' }}>
+        Compteur de ballons remis à zéro chaque jour à minuit · les gains se cumulent jusqu'au 9 juillet · {nbDays} jour(s) comptabilisé(s)
+      </div>
+      {rows.map((player, i) => {
+        const rank = i + 1
+        return (
+          <div key={player.id} className={`lb-row ${rank===1?'rank-1':rank===2?'rank-2':rank===3?'rank-3':''}`} style={{ animationDelay:`${i*.04}s` }}>
+            <div className="rank-num">{rank<=3 && player.total>0 ? MEDALS[rank-1] : rank}</div>
+            <div className="lb-avatar" style={{ background:player.color }}>{getInitials(player.name)}</div>
+            <div className="lb-info">
+              <div className="lb-name">{player.name}</div>
+              <div className="lb-badges">
+                {player.isCoach && <span className="badge-pill" style={{ background:'rgba(255,215,0,.15)', color:'var(--gold)', border:'1px solid rgba(255,215,0,.3)' }}>{player.role}</span>}
+                {player.today === first3 && <span className="badge-pill" style={{ background:'rgba(255,107,53,.18)', color:'#ff6b35', border:'1px solid rgba(255,107,53,.35)' }}>🥇 1er à 3 · +{first3}€</span>}
+                {player.today === b2 && <span className="badge-pill" style={{ background:'rgba(0,229,204,.15)', color:'#00e5cc', border:'1px solid rgba(0,229,204,.3)' }}>+{b2}€ aujourd'hui</span>}
+              </div>
+            </div>
+            <div className="lb-goals"><div className="lb-goals-num">{player.goals||0}</div><div className="lb-goals-label">auj.</div></div>
+            <div className="lb-earnings">
+              <div className="lb-earn-num" style={{ color:player.total>0?'var(--gold)':'rgba(240,244,255,.2)' }}>{player.total}€</div>
+              <div className="lb-earn-label">cumulé</div>
+            </div>
+          </div>
+        )
+      })}
+      <div className="lb-total-bar" style={{ marginTop:8 }}>
+        <div>
+          <div className="lb-total-label">Total {mod.name}</div>
+          <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:'.7rem', color:'rgba(240,244,255,.4)', marginTop:1 }}>{rows.length} participants</div>
+        </div>
+        <div className="lb-total-num">{grand}€</div>
+      </div>
+    </div>
+  )
+}
+
 // ── Vue module pronostic ──────────────────────────────────────────────────────
 function PronoModuleView({ mod, coaches }) {
   const moduleCoaches = (coaches||[]).map(c => ({ ...c, ...(mod.coachData?.[c.id] || {}) }))
@@ -311,7 +370,9 @@ export default function Leaderboard({ modules, coaches, activeModId }) {
         if (!mod) return null
         return mod.type === 'pronostic'
           ? <PronoModuleView mod={mod} coaches={coaches} />
-          : (() => {
+          : mod.settings?.dailyBonus
+            ? <ElimModuleView mod={mod} coaches={coaches} />
+            : (() => {
               const isPoules = mod.settings?.phase === 'poules'
               const credited = mod.id === canonId || isPoules
               const maps = credited ? validatedForFeed(modules, coaches, isPoules) : { count:{}, value:{} }

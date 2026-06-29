@@ -7,7 +7,13 @@ import Rules from './components/Rules'
 import Dashboard from './components/Dashboard'
 import Login from './components/Login'
 import WorldCupCountdown, { GROUP_PHASE_TS } from './components/WorldCupCountdown'
-import { getCurrentTier, getTierRate, DEFAULT_SETTINGS, PRONO_BONUS } from './utils/bonus'
+import { getCurrentTier, getTierRate, DEFAULT_SETTINGS, PRONO_BONUS, computeElimDailyBonus } from './utils/bonus'
+
+// Clé de jour locale 'AAAA-MM-JJ' (sert à la remise à zéro quotidienne de l'Élimination directe).
+const dayKeyOf = (d = new Date()) => {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 import { db, isConfigured, doc, setDoc, onSnapshot } from './firebase'
 
 const BASE_PLAYERS = [
@@ -44,11 +50,11 @@ const PART2_SETTINGS = {
 // Préréglage — Élimination directe (MÊMES règles que la phase de poule).
 // Active (informatif) du 28 juin 2026 09h00 au 19 juillet 2026 20h59.
 const ELIM_SETTINGS = {
-  tier1Rate: 10, tier2Rate: 12, tier3Rate: 15, topScorerRate: 20,
-  tier1Threshold: 50, tier2Threshold: 80, objective: 100,
-  phaseEnded: false, minForTier3: 3,
   unit: 'forfait', phase: 'elim',
-  bannerPhase: 'ÉLIMINATION DIRECTE', bannerDates: 'DU 28 JUIN AU 19 JUILLET 2026',
+  dailyBonus: true, bonusFirst3: 50, bonus2: 30, bonus2Count: 4,
+  startDate: '2026-06-28', endDate: '2026-07-09',
+  objective: 100,
+  bannerPhase: 'ÉLIMINATION DIRECTE', bannerDates: 'DU 28 JUIN AU 09 JUILLET 2026',
 }
 
 // Préréglage du match France–Sénégal (pronostic de la PHASE DE GROUPE).
@@ -170,8 +176,11 @@ function reconcileModules(modules, deletedIds = []) {
       const nm = (m.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       if (settings.phase !== 'elim' && nm.includes('elimination directe'))
         settings = { ...settings, ...ELIM_SETTINGS }
-      if (settings.phase === 'elim' && settings.bannerDates !== 'DU 28 JUIN AU 19 JUILLET 2026')
-        settings = { ...settings, bannerDates: 'DU 28 JUIN AU 19 JUILLET 2026' }
+      // Élimination directe : nouvelles règles (bonus quotidien 50€/30€) + dates jusqu'au 09 juillet.
+      if (settings.phase === 'elim' && (!settings.dailyBonus || settings.endDate !== '2026-07-09' || settings.bannerDates !== 'DU 28 JUIN AU 09 JUILLET 2026')) {
+        const { tier1Rate, tier2Rate, tier3Rate, topScorerRate, tier1Threshold, tier2Threshold, minForTier3, phaseEnded, ...keep } = settings
+        settings = { ...keep, ...ELIM_SETTINGS }
+      }
     }
     // Migration : créneau du pronostic France–Sénégal = 16 juin 09h00 → 21h50 (UNIQUEMENT ce match)
     if (settings && settings.feeds === 'poules' && settings.awayCode === 'SEN' && settings.window &&
@@ -278,7 +287,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v17 · France-Irak 25€ aujourd\u2019hui' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v20 · Élim. 50/30 règles à jour' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -760,6 +769,47 @@ export default function App() {
     }))
     setCoaches(prev => prev.map(c => ({ ...c, goals: 0, extraSlots: 0 })))
   }, [modules, coaches, fbStatus])
+
+  // ── ÉLIMINATION DIRECTE : remise à zéro QUOTIDIENNE des ballons à minuit ──
+  // À chaque changement de jour, on FIGE les gains de la journée écoulée (50€ au 1er à 3 ballons,
+  // 30€ aux 4 suivants à ≥2 ballons, rien si personne n'a fait 3) dans elimHistory, puis on remet
+  // les ballons à zéro. Les gains cumulés sont conservés. Tourne jusqu'au 09 juillet.
+  useEffect(() => {
+    const tick = () => {
+      const today = dayKeyOf()
+      setModules(prev => {
+        let changed = false
+        const next = prev.map(m => {
+          if (!m.settings?.dailyBonus) return m
+          // 1ère initialisation : on démarre la journée à zéro proprement.
+          if (!m.elimDay) {
+            changed = true
+            const players = (m.players || []).map(p => ({ ...p, goals: 0, reach2At: null, reach3At: null }))
+            const coachData = {}
+            Object.entries(m.coachData || {}).forEach(([id, d]) => { coachData[id] = { ...d, goals: 0, reach2At: null, reach3At: null } })
+            return { ...m, players, coachData, elimDay: today, elimHistory: m.elimHistory || {} }
+          }
+          if (m.elimDay === today) return m
+          // Changement de jour → on fige la journée écoulée puis remise à zéro.
+          changed = true
+          const within = m.elimDay >= (m.settings.startDate || '0000') && m.elimDay <= (m.settings.endDate || '9999')
+          const cPeople = coachesRef.current.map(c => ({ id: c.id, goals: m.coachData?.[c.id]?.goals || 0, reach2At: m.coachData?.[c.id]?.reach2At, reach3At: m.coachData?.[c.id]?.reach3At }))
+          const people = [...(m.players || []).map(p => ({ id: p.id, goals: p.goals || 0, reach2At: p.reach2At, reach3At: p.reach3At })), ...cPeople]
+          const hist = { ...(m.elimHistory || {}) }
+          if (within && !hist[m.elimDay]) hist[m.elimDay] = computeElimDailyBonus(people, m.settings)
+          const players = (m.players || []).map(p => ({ ...p, goals: 0, reach2At: null, reach3At: null }))
+          const coachData = {}
+          Object.entries(m.coachData || {}).forEach(([id, d]) => { coachData[id] = { ...d, goals: 0, reach2At: null, reach3At: null } })
+          return { ...m, players, coachData, elimDay: today, elimHistory: hist }
+        })
+        return changed ? next : prev
+      })
+    }
+    tick()
+    const iv = setInterval(tick, 60000)
+    return () => clearInterval(iv)
+  }, [modules.length, fbStatus])
+
   const activeModule  = modules.find(m => m.id === activeMod) || modules[0]
   const modPlayers    = activeModule?.players || []
   const modSettings   = activeModule?.settings || DEFAULT_SETTINGS
@@ -873,8 +923,24 @@ export default function App() {
 
   const addGoal = useCallback((id, coords) => {
     if (!mayEdit(id)) return
-    if (coachesRef.current.some(c => c.id === id)) bumpCoach(id, 'goals', +1)
-    else setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, goals: (p.goals||0)+1 } : p))
+    const active = stateRef.current.modules.find(m => m.id === activeModRef.current)
+    const daily = !!active?.settings?.dailyBonus
+    const now = Date.now()
+    const stamp = (cur, ng) => {
+      const u = {}
+      if (daily) { if (ng >= 2 && !cur.reach2At) u.reach2At = now; if (ng >= 3 && !cur.reach3At) u.reach3At = now }
+      return u
+    }
+    if (coachesRef.current.some(c => c.id === id)) {
+      setModules(prev => prev.map(m => {
+        if (m.id !== activeModRef.current) return m
+        const cd = { ...(m.coachData || {}) }; const cur = cd[id] || {}; const ng = (cur.goals || 0) + 1
+        cd[id] = { ...cur, goals: ng, ...stamp(cur, ng) }
+        return { ...m, coachData: cd }
+      }))
+    } else {
+      setActivePlayers(prev => prev.map(p => { if (p.id !== id) return p; const ng = (p.goals || 0) + 1; return { ...p, goals: ng, ...stamp(p, ng) } }))
+    }
     if (coords) {
       setGoalBurst({ x: coords.x, y: coords.y, id: Date.now() })
       setTimeout(() => setGoalBurst(null), 700)
@@ -883,8 +949,25 @@ export default function App() {
 
   const removeGoal = useCallback((id) => {
     if (!mayEdit(id)) return
-    if (coachesRef.current.some(c => c.id === id)) bumpCoach(id, 'goals', -1, true)
-    else setActivePlayers(prev => prev.map(p => p.id === id && (p.goals||0) > 0 ? { ...p, goals: p.goals-1 } : p))
+    const active = stateRef.current.modules.find(m => m.id === activeModRef.current)
+    const daily = !!active?.settings?.dailyBonus
+    const unstamp = (ng) => {
+      const u = {}
+      if (daily) { if (ng < 3) u.reach3At = null; if (ng < 2) u.reach2At = null }
+      return u
+    }
+    if (coachesRef.current.some(c => c.id === id)) {
+      setModules(prev => prev.map(m => {
+        if (m.id !== activeModRef.current) return m
+        const cd = { ...(m.coachData || {}) }; const cur = cd[id] || {}
+        if ((cur.goals || 0) <= 0) return m
+        const ng = cur.goals - 1
+        cd[id] = { ...cur, goals: ng, ...unstamp(ng) }
+        return { ...m, coachData: cd }
+      }))
+    } else {
+      setActivePlayers(prev => prev.map(p => { if (p.id !== id || (p.goals || 0) <= 0) return p; const ng = p.goals - 1; return { ...p, goals: ng, ...unstamp(ng) } }))
+    }
   }, [setActivePlayers])
 
   const addSlot = useCallback((id) => {
@@ -1102,6 +1185,14 @@ export default function App() {
   const unitU = unit.toUpperCase() + 'S' // FORFAITS / LIGNES
   const progressPct = Math.min(100, Math.round((totalGoals / objective) * 100))
 
+  // Élimination directe : stats du jour (bonus quotidien) pour l'en-tête et le bandeau.
+  const elimDaily = modSettings.dailyBonus ? computeElimDailyBonus(allPeople, modSettings) : null
+  const elimFirst3 = modSettings.bonusFirst3 ?? 50
+  const elimB2 = modSettings.bonus2 ?? 30
+  const elimN2 = modSettings.bonus2Count ?? 4
+  const elimTriples = elimDaily ? Object.values(elimDaily).filter(v => v === elimFirst3).length : 0 // 0 ou 1
+  const elimDoubles = elimDaily ? Object.values(elimDaily).filter(v => v === elimB2).length : 0     // 0..4
+
   // ── Porte d'entrée : page de connexion ─────────────────────────────────────
   if (!currentUser) {
     const rosterPlayers = (modules.find(m => (m.type || 'forfaits') === 'forfaits') || modules[0])?.players || []
@@ -1190,10 +1281,17 @@ service cloud.firestore {
           </div>
           <div className="header-stats">
             {!isProno ? (
+              modSettings.dailyBonus ? (
+                <>
+                  <div className="stat-badge"><span className="stat-num">{totalGoals}</span><span className="stat-label">BALLONS AUJ.</span></div>
+                  <div className="stat-badge tier-3"><span className="stat-num">{elimFirst3}€</span><span className="stat-label">1ER À 3</span></div>
+                </>
+              ) : (
               <>
                 <div className="stat-badge"><span className="stat-num">{totalGoals}</span><span className="stat-label">{unitU}</span></div>
                 <div className={`stat-badge tier-${currentTier}`}><span className="stat-num">{tierRate}€</span><span className="stat-label">/ {unit.toUpperCase()}</span></div>
               </>
+              )
             ) : (
               <div className="stat-badge" style={{ borderColor:'rgba(255,152,0,.4)', background:'rgba(255,152,0,.08)' }}>
                 <span className="stat-num" style={{ color:'#ff9800' }}>{allPeople.reduce((s,p)=>s+(p.validatedPronos||0),0)}</span>
@@ -1215,6 +1313,23 @@ service cloud.firestore {
           </div>
         </div>
         {!isProno && (
+          modSettings.dailyBonus ? (
+            <div className="tier-bar" style={{ position:'relative' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:18, flexWrap:'wrap', marginBottom:6, fontFamily:"'Barlow Condensed',sans-serif" }}>
+                <span style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+                  <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:'1.35rem', color:elimTriples>0?'#ff6b35':'rgba(240,244,255,.5)', letterSpacing:1, lineHeight:1 }}>TRIPLE {elimTriples}/1</span>
+                  <span style={{ fontSize:'.8rem', color:'#ff6b35', fontWeight:700 }}>· {elimFirst3}€</span>
+                </span>
+                <span style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+                  <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:'1.35rem', color:elimDoubles>0?'#00e5cc':'rgba(240,244,255,.5)', letterSpacing:1, lineHeight:1 }}>DOUBLE {elimDoubles}/{elimN2}</span>
+                  <span style={{ fontSize:'.8rem', color:'#00e5cc', fontWeight:700 }}>· {elimB2}€</span>
+                </span>
+              </div>
+              <div style={{ textAlign:'center', fontSize:'.72rem', color:'rgba(240,244,255,.5)', letterSpacing:.5 }}>
+                Bonus du jour uniquement si un <strong>triple</strong> est réalisé · ballons remis à zéro chaque jour à minuit
+              </div>
+            </div>
+          ) : (
           <div className="tier-bar" style={{ position:'relative' }}>
             <div style={{ display:'flex', alignItems:'baseline', justifyContent:'center', gap:8, marginBottom:6, fontFamily:"'Barlow Condensed',sans-serif" }}>
               <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:'1.35rem', color:'var(--gold)', letterSpacing:1, lineHeight:1 }}>{totalGoals}</span>
@@ -1236,6 +1351,7 @@ service cloud.firestore {
               </div>
             </div>
           </div>
+          )
         )}
         <div className="ticker-wrap">
           <div className="ticker-content">
@@ -1244,8 +1360,10 @@ service cloud.firestore {
               const pronoTarget = modSettings.feeds === 'poules' ? 'PHASE DE POULES' : 'PRÉPARATION MONDIALE'
               const items = isProno
                 ? [`🎯 BON PRONOSTIQUEUR · ${pronoMatch}`, '⭐ PRONOSTIC VALIDÉ = 20€ DE BONUS', `🏆 CLASSEMENT COMPTABILISÉ DANS ${pronoTarget}`, '🔧 RÉSULTAT OFFICIEL SAISI PAR LE MANAGER']
-                : (modSettings.phase === 'elim'
-                    ? [`⚔️ ${modSettings.bannerPhase || 'ÉLIMINATION DIRECTE'} · ${modSettings.bannerDates || 'DU 28 JUIN AU 19 JUILLET 2026'}`, `🏆 OBJECTIF ${objective} FORFAITS → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🔥 MÊMES RÈGLES QUE LA PHASE DE POULES', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/FORFAIT SI ${objective} ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
+                : (modSettings.dailyBonus
+                    ? [`⚔️ ${modSettings.bannerPhase || 'ÉLIMINATION DIRECTE'} · ${modSettings.bannerDates || 'DU 28 JUIN AU 09 JUILLET 2026'}`, `🥇 1ER À 3 BALLONS : ${elimFirst3}€ · ${elimN2} SUIVANTS À 2 BALLONS : ${elimB2}€`, `🏆 AUJOURD'HUI · TRIPLE ${elimTriples}/1 · DOUBLE ${elimDoubles}/${elimN2}`, '⚠️ AUCUN BONUS SI AUCUN TRIPLE DANS LA JOURNÉE', '🔄 COMPTEUR REMIS À ZÉRO CHAQUE JOUR À MINUIT · GAINS CUMULÉS', '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
+                : modSettings.phase === 'elim'
+                    ? [`⚔️ ${modSettings.bannerPhase || 'ÉLIMINATION DIRECTE'} · ${modSettings.bannerDates || 'DU 28 JUIN AU 09 JUILLET 2026'}`, `🥇 1ER À 3 BALLONS : ${elimFirst3}€ · ${elimN2} SUIVANTS À 2 BALLONS : ${elimB2}€`, '🔄 COMPTEUR REMIS À ZÉRO CHAQUE JOUR À MINUIT', '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
                 : modSettings.phase === 'poules'
                     ? [`⚽ ${modSettings.bannerPhase || 'PHASE DE POULES'} · ${modSettings.bannerDates || "JUSQU'AU 27 JUIN 2026"}`, `🏆 OBJECTIF ${objective} FORFAITS → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🇫🇷 FRANCE VS SÉNÉGAL · PHASE DE GROUPE', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/FORFAIT SI 100 ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE']
                     : [`⚽ ${modSettings.bannerPhase || 'PHASE DE PRÉPARATION MONDIALE'} · ${modSettings.bannerDates || "JUSQU'AU 11/06/2026"}`, `🏆 OBJECTIF ${objective} ${unitU} → ${modSettings.tier3Rate}€ RÉTROACTIF`, '🎯 PRONOSTIC FRANCE VS IRLANDE COMPTÉ ICI', `👑 TOP BUTEUR : ${modSettings.topScorerRate}€/${unit} SI OBJECTIF ATTEINT`, '🌍 FIFA WORLD CUP 2026 · USA · CANADA · MEXIQUE'])
@@ -1291,8 +1409,8 @@ service cloud.firestore {
           isProno
             ? <PronosticModule module={activeModule} players={modPlayers} coaches={activeCoaches} dashAuth={dashAuth} editableId={editableId} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
             : <div className="module-stage">
-                <Fireworks active={totalGoals >= objective} confetti />
-                {totalGoals >= objective && (
+                <Fireworks active={!modSettings.dailyBonus && totalGoals >= objective} confetti />
+                {!modSettings.dailyBonus && totalGoals >= objective && (
                   <div className="objective-badge">🎉 Objectif atteint · {objective} {unitU.toLowerCase()}</div>
                 )}
                 {activeModule?.settings?.phase === 'poules' && (() => {
@@ -1304,6 +1422,11 @@ service cloud.firestore {
                     </div>
                   ) : null
                 })()}
+                {activeModule?.settings?.dailyBonus && (
+                  <div className="poules-irak-note" style={{ background:'linear-gradient(135deg, rgba(255,107,53,.16), rgba(255,193,7,.10))', borderColor:'rgba(255,107,53,.45)' }}>
+                    🏆 <strong>Élimination directe — bonus du jour.</strong> Le 1ᵉʳ à <strong>3 ballons</strong> gagne <strong>{activeModule.settings.bonusFirst3 ?? 50}€</strong>, les <strong>{activeModule.settings.bonus2Count ?? 4} suivants</strong> à <strong>2 ballons</strong> gagnent <strong>{activeModule.settings.bonus2 ?? 30}€</strong>. Si personne n'atteint 3, aucun bonus. Ballons remis à zéro chaque jour à minuit, gains cumulés jusqu'au 9 juillet.
+                  </div>
+                )}
                 <Pitch players={modPlayers} coaches={activeCoaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} validatedValueById={validatedValueById} dashAuth={dashAuth} editableId={editableId} />
               </div>
         )}

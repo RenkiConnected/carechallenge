@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getPlayerEarnings, getPlayerTotalEarnings, isTopScorer, hasHatTrick, DEFAULT_SETTINGS } from '../utils/bonus'
+import { getPlayerEarnings, getPlayerTotalEarnings, isTopScorer, hasHatTrick, DEFAULT_SETTINGS, computeElimDailyBonus } from '../utils/bonus'
 
 function getInitials(name) { return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
 
@@ -12,11 +12,14 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
   useEffect(() => { setNameVal(player.name) }, [player.name])
 
   const unit = s.unit || 'forfait'
+  const daily = !!s.dailyBonus
+  const dailyMap = daily ? computeElimDailyBonus(allPeople, s) : {}
+  const dailyGain = dailyMap[String(player.id)] || 0
   const earnings = getPlayerEarnings(player, allPeople, totalGoals, s)
-  const totalEarnings = getPlayerTotalEarnings(player, allPeople, totalGoals, s, validatedCount, validatedValue)
+  const totalEarnings = daily ? dailyGain : getPlayerTotalEarnings(player, allPeople, totalGoals, s, validatedCount, validatedValue)
   const vp = Math.min(validatedCount || 0, player.goals || 0)
   const pronoBonus = Math.max(0, totalEarnings - earnings)
-  const isTop = isTopScorer(player, allPeople, s)
+  const isTop = daily ? false : isTopScorer(player, allPeople, s)
   const ht = hasHatTrick(player)
   const displaySlots = Math.max(3 + (player.extraSlots || 0), player.goals + 1)
   const balls = Array.from({ length: displaySlots }, (_, i) => i)
@@ -73,16 +76,26 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
         <div className="modal-stats">
           <div className="modal-stat">
             <div className="modal-stat-num" style={{ color: isTop ? '#ff6b35' : 'var(--gold)' }}>{player.goals}</div>
-            <div className="modal-stat-label">{unit==="ligne"?"Lignes":"Forfaits"}</div>
+            <div className="modal-stat-label">{daily ? 'Ballons du jour' : (unit==="ligne"?"Lignes":"Forfaits")}</div>
           </div>
           <div className="modal-stat">
             <div className="modal-stat-num" style={{ color: totalEarnings > 0 ? '#2ecc71' : 'var(--text-dim)' }}>{totalEarnings.toFixed(2)}€</div>
-            <div className="modal-stat-label">{isTop ? '🏆 Prime Top' : 'Gain total'}{vp > 0 ? ` · ${vp} 🎯 à 20€` : ''}</div>
+            <div className="modal-stat-label">{daily ? (dailyGain >= (s.bonusFirst3??50) ? '🥇 1er à 3 ballons' : dailyGain > 0 ? 'Bonus du jour' : 'Bonus du jour') : (isTop ? '🏆 Prime Top' : 'Gain total')}{!daily && vp > 0 ? ` · ${vp} 🎯 à 20€` : ''}</div>
           </div>
         </div>
 
+        {daily && (
+          <div className="hat-trick-badge" style={{ background:'rgba(255,152,0,.10)', border:'1px solid rgba(255,152,0,.35)' }}>
+            <span className="ht-icon">🏆</span>
+            <div style={{ flex:1 }}>
+              <div className="ht-title">BONUS DU JOUR</div>
+              <div className="ht-sub">1er à <strong>3 ballons</strong> : {s.bonusFirst3??50}€ · les {s.bonus2Count??4} suivants à <strong>2 ballons</strong> : {s.bonus2??30}€. Remis à zéro chaque jour à minuit, gains cumulés.</div>
+            </div>
+          </div>
+        )}
+
         {/* Hat-trick badge */}
-        {ht && (
+        {ht && !daily && (
           <div className="hat-trick-badge">
             <span className="ht-icon">👑</span>
             <div style={{ flex:1 }}>
@@ -120,8 +133,8 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
         {!ht && (
           <div style={{ marginTop:6 }}>
             <div style={{ display:'flex', justifyContent:'space-between', fontFamily:"'Barlow Condensed',sans-serif", fontSize:'.75rem', color:'rgba(240,244,255,.5)', marginBottom:4 }}>
-              <span>Progression vers le Hat-Trick 👑</span>
-              <span>{player.goals}/{s.minForTier3}</span>
+              <span>{daily ? `Progression vers 3 ballons (${s.bonusFirst3??50}€) 🏆` : 'Progression vers le Hat-Trick 👑'}</span>
+              <span>{player.goals}/{daily ? 3 : s.minForTier3}</span>
             </div>
             <div style={{ height:7, background:'rgba(255,255,255,.08)', borderRadius:4, overflow:'hidden' }}>
               <div style={{ height:'100%', width:`${Math.min(100,(player.goals/s.minForTier3)*100)}%`, background:'linear-gradient(90deg,#ffd700,#ffb300)', borderRadius:4, transition:'width .4s cubic-bezier(.34,1.56,.64,1)' }} />
@@ -130,6 +143,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
         )}
 
         {/* Current rate */}
+        {!daily && (
         <div style={{ marginTop:12, padding:'8px 12px', background:'rgba(255,255,255,.04)', borderRadius:8, fontFamily:"'Barlow Condensed',sans-serif", fontSize:'.78rem', color:'rgba(240,244,255,.5)', lineHeight:1.6 }}>
           💡 Taux actuel :{' '}
           <strong style={{ color:'var(--gold)' }}>
@@ -139,6 +153,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
              `${s.tier1Rate}€/${unit}`}
           </strong>
         </div>
+        )}
       </div>
     </div>
   )
