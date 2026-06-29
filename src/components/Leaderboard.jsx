@@ -16,6 +16,7 @@ function validatedForFeed(modules, coaches, isPoules) {
   modules.forEach(m => {
     if (m.type !== 'pronostic') return
     const f = m.settings?.feeds
+    if (f === 'none') return
     const matches = isPoules ? f === 'poules' : f !== 'poules'
     if (!matches) return
     const val = m.settings?.pronoBonus || PRONO_BONUS
@@ -367,7 +368,7 @@ export default function Leaderboard({ modules, coaches, activeModId }) {
       {/* Per-module views */}
       {view !== 'combined' && (() => {
         const mod = modules.find(m => m.id === view)
-        if (!mod) return null
+        if (!mod || mod.type === 'bracket') return null
         return mod.type === 'pronostic'
           ? <PronoModuleView mod={mod} coaches={coaches} />
           : mod.settings?.dailyBonus

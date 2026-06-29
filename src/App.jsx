@@ -5,6 +5,7 @@ import Fireworks from './components/Fireworks'
 import Leaderboard from './components/Leaderboard'
 import Rules from './components/Rules'
 import Dashboard from './components/Dashboard'
+import Bracket, { setWinner as bracketSetWinner } from './components/Bracket'
 import Login from './components/Login'
 import WorldCupCountdown, { GROUP_PHASE_TS } from './components/WorldCupCountdown'
 import { getCurrentTier, getTierRate, DEFAULT_SETTINGS, PRONO_BONUS, computeElimDailyBonus } from './utils/bonus'
@@ -91,6 +92,18 @@ const NORVEGE_SETTINGS = {
   window: { from: '2026-06-26T09:00:00', to: '2026-06-26T20:59:00' },
 }
 
+// France–Suède · 16ᵉ DE FINALE. Vote (prédiction + ballons) le MARDI 30 juin (09h00→22h59).
+// Règles de gains à définir plus tard → feeds:'none' (n'alimente aucun classement pour l'instant).
+// knockout:true → animation différente dans la fiche du pronostic.
+const SUEDE_SETTINGS = {
+  pronoBonus: 20, feeds: 'none', knockout: true,
+  homeFlag: '🇫🇷', homeName: 'FRANCE', homeCode: 'FRA',
+  awayFlag: '🇸🇪', awayName: 'SUÈDE', awayCode: 'SWE',
+  matchLabel: 'FRANCE VS SUÈDE',
+  phaseLabel: '16ᵉ DE FINALE',
+  window: { from: '2026-06-30T09:00:00', to: '2026-06-30T22:59:00' },
+}
+
 // Chargement local : si la clé principale a été vidée/réinitialisée, on récupère
 // automatiquement la DERNIÈRE bonne sauvegarde locale (filet de secours par appareil).
 function loadLocal() {
@@ -154,6 +167,7 @@ function reconcileModules(modules, deletedIds = []) {
   if (!roster.size) return modules
   const canonId = (modules.find(m => (m.type || 'forfaits') === 'forfaits') || modules[0])?.id
   return modules.map(m => {
+    if (m.type === 'bracket') return m // le Tableau n'a pas de joueurs : on le laisse tel quel
     const existing = new Map((m.players || []).map(p => [p.id, p]))
     const players = [...roster.values()].map(r => {
       const prev = existing.get(r.id)
@@ -203,6 +217,13 @@ function reconcileModules(modules, deletedIds = []) {
         const { ballWindow, ...rest } = settings // on retire proprement ballWindow (un seul créneau)
         settings = { ...rest, window: { ...W } }
       }
+    }
+    // Migration : créneau France–Suède (16ᵉ de finale) — vote le MARDI 30 juin (09h00→22h59).
+    if (settings && settings.awayCode === 'SWE') {
+      const W = { from: '2026-06-30T09:00:00', to: '2026-06-30T22:59:00' }
+      const w = settings.window
+      if (!w || w.from !== W.from || w.to !== W.to || settings.phaseLabel !== '16ᵉ DE FINALE' || settings.feeds !== 'none' || !settings.knockout)
+        settings = { ...settings, window: { ...W }, phaseLabel: '16ᵉ DE FINALE', feeds: 'none', knockout: true }
     }
     // Migration : la 1ère partie s'appelle "Préparation Mondiale"
     let name = m.name
@@ -287,7 +308,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v21 · retrait ballons + Manager' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v22 · France-Suède 16e + Tableau' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -736,6 +757,46 @@ export default function App() {
     })
   }, [modules, fbStatus])
 
+  // France – Suède · 16ᵉ de finale. AUTO-RÉPARANT : créée si absente (après la Phase de Poules).
+  const sweDone = useRef(false)
+  useEffect(() => {
+    if (sweDone.current) return
+    if (isConfigured && db && !hydrated.current) return
+    if (modules.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'SWE')) { sweDone.current = true; return }
+    if (!modules.some(m => m.settings?.phase === 'poules')) return
+    sweDone.current = true
+    localStorage.setItem('fc2026_swe', 'done')
+    const nid = uniqueId()
+    setModules(prev => {
+      if (prev.some(m => m.type === 'pronostic' && m.settings?.awayCode === 'SWE')) return prev
+      const players = playersFromRoster(prev, 'pronostic')
+      return [...prev, { id: nid, name: 'France - Suède', type: 'pronostic', players, coachData: {}, settings: { ...SUEDE_SETTINGS } }]
+    })
+  }, [modules, fbStatus])
+
+  // Tableau de la compétition (bracket). AUTO-RÉPARANT : créé si absent.
+  const bracketDone = useRef(false)
+  useEffect(() => {
+    if (bracketDone.current) return
+    if (isConfigured && db && !hydrated.current) return
+    if (modules.some(m => m.type === 'bracket')) { bracketDone.current = true; return }
+    if (!modules.some(m => m.settings?.phase === 'poules')) return
+    bracketDone.current = true
+    const nid = uniqueId()
+    setModules(prev => {
+      if (prev.some(m => m.type === 'bracket')) return prev
+      return [...prev, { id: nid, name: 'Tableau', type: 'bracket', winners: {} }]
+    })
+  }, [modules, fbStatus])
+
+  // Désigner le vainqueur d'un match du Tableau (Manager) → il avance au tour suivant.
+  const setBracketWinner = useCallback((round, idx, teamId) => {
+    if (!dashAuthRef.current) return
+    setModules(prev => prev.map(m => m.type === 'bracket'
+      ? { ...m, winners: bracketSetWinner(m.winners || {}, round, idx, teamId) }
+      : m))
+  }, [])
+
   // Élimination directe (mêmes règles que la phase de poule). AUTO-RÉPARANT : créée si absente.
   const elimDone = useRef(false)
   const isElim = (m) => m.settings?.phase === 'elim' ||
@@ -822,6 +883,7 @@ export default function App() {
   const modPlayers    = activeModule?.players || []
   const modSettings   = activeModule?.settings || DEFAULT_SETTINGS
   const isProno       = activeModule?.type === 'pronostic'
+  const isBracket     = activeModule?.type === 'bracket'
   // Coachs avec leur compteur PROPRE à ce module (stocké dans coachData) → ils repartent
   // à zéro sur chaque évènement, exactement comme les joueurs.
   const coachesForModule = (mod) => coaches.map(c => {
@@ -843,7 +905,7 @@ export default function App() {
   const validatedById = useMemo(() => {
     const map = {}
     const activeIsPoules = activeModule?.settings?.phase === 'poules'
-    const feedsThis = m => { const f = m.settings?.feeds; return activeIsPoules ? f === 'poules' : f !== 'poules' }
+    const feedsThis = m => { const f = m.settings?.feeds; if (f === 'none') return false; return activeIsPoules ? f === 'poules' : f !== 'poules' }
     modules.forEach(m => {
       if (m.type !== 'pronostic' || !feedsThis(m)) return
       ;(m.players || []).forEach(p => { map[p.id] = (map[p.id] || 0) + (p.validatedPronos || 0) })
@@ -858,7 +920,7 @@ export default function App() {
   const validatedValueById = useMemo(() => {
     const map = {}
     const activeIsPoules = activeModule?.settings?.phase === 'poules'
-    const feedsThis = m => { const f = m.settings?.feeds; return activeIsPoules ? f === 'poules' : f !== 'poules' }
+    const feedsThis = m => { const f = m.settings?.feeds; if (f === 'none') return false; return activeIsPoules ? f === 'poules' : f !== 'poules' }
     modules.forEach(m => {
       if (m.type !== 'pronostic' || !feedsThis(m)) return
       const val = m.settings?.pronoBonus || PRONO_BONUS
@@ -1035,7 +1097,9 @@ export default function App() {
   // Ajouter un ballon dans Bon Pronostiqueur = +1 pronostic ET +1 ballon (forfait) en 1ère Partie
   // Module forfait cible d'un pronostic : France–Sénégal → Phase de Poules, sinon Préparation.
   const targetForfaitModule = (prev, pronoModule) => {
-    if (pronoModule?.settings?.feeds === 'poules') return prev.find(m => m.settings?.phase === 'poules')
+    const f = pronoModule?.settings?.feeds
+    if (f === 'none') return null
+    if (f === 'poules') return prev.find(m => m.settings?.phase === 'poules')
     return prev.find(m => (m.type || 'forfaits') === 'forfaits') || prev[0]
   }
 
@@ -1303,7 +1367,7 @@ service cloud.firestore {
             <p>World Cup 2026 · {activeModule?.name}</p>
           </div>
           <div className="header-stats">
-            {!isProno ? (
+            {isBracket ? <div className="stat-badge"><span className="stat-num">🏆</span><span className="stat-label">TABLEAU</span></div> : !isProno ? (
               modSettings.dailyBonus ? (
                 <>
                   <div className="stat-badge"><span className="stat-num">{totalGoals}</span><span className="stat-label">BALLONS AUJ.</span></div>
@@ -1335,7 +1399,7 @@ service cloud.firestore {
             </div>
           </div>
         </div>
-        {!isProno && (
+        {!isProno && !isBracket && (
           modSettings.dailyBonus ? (
             <div className="tier-bar" style={{ position:'relative' }}>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:18, flexWrap:'wrap', marginBottom:6, fontFamily:"'Barlow Condensed',sans-serif" }}>
@@ -1376,7 +1440,7 @@ service cloud.firestore {
           </div>
           )
         )}
-        <div className="ticker-wrap">
+        {!isBracket && <div className="ticker-wrap">
           <div className="ticker-content">
             {(() => {
               const pronoMatch = modSettings.matchLabel || 'FRANCE VS IRLANDE'
@@ -1394,7 +1458,7 @@ service cloud.firestore {
               return [...items, ...items].map((t, i) => <span key={i}>{t}</span>)
             })()}
           </div>
-        </div>
+        </div>}
       </header>
 
       <div className="module-tabs-bar">
@@ -1429,7 +1493,9 @@ service cloud.firestore {
 
       <main className="app-main">
         {tab === 'module' && (
-          isProno
+          isBracket
+            ? <Bracket winners={activeModule.winners || {}} canEdit={dashAuth} onPick={setBracketWinner} />
+            : isProno
             ? <PronosticModule module={activeModule} players={modPlayers} coaches={activeCoaches} dashAuth={dashAuth} editableId={editableId} onUpdatePerson={updatePerson} onSetResult={setPronoResult} onValidateAll={validatePronos} onAddBall={addPronoBall} onRemoveBall={removePronoBall} />
             : <div className="module-stage">
                 <Fireworks active={!modSettings.dailyBonus && totalGoals >= objective} confetti />

@@ -110,21 +110,30 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
   const voters = allPeople.filter(hasScore)
   const winners = allPeople.filter(p => p.pronoStatus === 'won')
   const bonus = module?.settings?.pronoBonus || PRONO_BONUS
+  const knockout = !!module?.settings?.knockout
+  const phaseLabel = module?.settings?.phaseLabel
   const showResultBlock = validatedRound > 0 && resultSet
   const nobodyWon = showResultBlock && winners.length === 0
 
   return (
-    <div className="prono-module">
+    <div className={`prono-module${knockout ? ' prono-knockout' : ''}`}>
       <Fireworks active={winners.length > 0} fixed intense confetti />
+      {knockout && phaseLabel && (
+        <div className="knockout-banner">
+          <span className="knockout-spark">⚔️</span>
+          <span className="knockout-phase">{phaseLabel}</span>
+          <span className="knockout-spark">⚔️</span>
+        </div>
+      )}
       <div className="prono-module-header">
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <span style={{ fontSize:'2rem' }}>🎯</span>
+          <span style={{ fontSize:'2rem' }}>{knockout ? '🏆' : '🎯'}</span>
           <div>
-            <div className="pmt-title">BON PRONOSTIQUEUR</div>
-            <div className="pmt-sub">Challenge dans le challenge</div>
+            <div className="pmt-title">{knockout ? 'VOTE — PHASE FINALE' : 'BON PRONOSTIQUEUR'}</div>
+            <div className="pmt-sub">{knockout ? (phaseLabel || 'Élimination directe') : 'Challenge dans le challenge'}</div>
           </div>
         </div>
-        <div className="special-day-pill">⭐ PRONOSTIC JUSTE · {bonus}€</div>
+        <div className="special-day-pill">{knockout ? '🗳️ VOTE OUVERT' : `⭐ PRONOSTIC JUSTE · ${bonus}€`}</div>
       </div>
 
       <div className="match-card-big">

@@ -134,6 +134,7 @@ export function buildCombinedRanking(modules, coaches) {
   const valuePrep = {}, valuePoules = {} // valeur € des ballons validés (taux par pronostic)
   ;(modules || []).forEach(m => {
     if (m.type !== 'pronostic') return
+    if (m.settings?.feeds === 'none') return
     const toPoules = m.settings?.feeds === 'poules'
     const target = toPoules ? validatedPoules : validatedPrep
     const vtarget = toPoules ? valuePoules : valuePrep
