@@ -8,7 +8,7 @@ import Dashboard from './components/Dashboard'
 import Bracket, { setWinner as bracketSetWinner } from './components/Bracket'
 import Login from './components/Login'
 import WorldCupCountdown, { GROUP_PHASE_TS } from './components/WorldCupCountdown'
-import { getCurrentTier, getTierRate, DEFAULT_SETTINGS, PRONO_BONUS, computeElimDailyBonus } from './utils/bonus'
+import { getCurrentTier, getTierRate, DEFAULT_SETTINGS, PRONO_BONUS, computeElimDailyBonus, isGroupModule } from './utils/bonus'
 
 // Clé de jour locale 'AAAA-MM-JJ' (sert à la remise à zéro quotidienne de l'Élimination directe).
 const dayKeyOf = (d = new Date()) => {
@@ -196,6 +196,11 @@ function reconcileModules(modules, deletedIds = []) {
         settings = { ...keep, ...ELIM_SETTINGS }
       }
     }
+    // Les pronostics des matchs de poule (Sénégal, Irak, Norvège) alimentent TOUJOURS la Phase de
+    // Poules : leur bonus doit compter dans le classement du groupe. On le force au cas où une
+    // ancienne donnée aurait perdu feeds:'poules' (sinon le bonus n'apparaît pas dans les Poules).
+    if (settings && ['SEN', 'IRQ', 'NOR'].includes(settings.awayCode) && settings.feeds !== 'poules')
+      settings = { ...settings, feeds: 'poules' }
     // Migration : créneau du pronostic France–Sénégal = 16 juin 09h00 → 21h50 (UNIQUEMENT ce match)
     if (settings && settings.feeds === 'poules' && settings.awayCode === 'SEN' && settings.window &&
         (settings.window.from !== '2026-06-16T09:00:00' || settings.window.to !== '2026-06-16T21:50:00'))
@@ -326,7 +331,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v27 · Bonus prono additif' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v28 · Bonus prono compté en Poules' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -915,7 +920,7 @@ export default function App() {
   // France–Irlande → Préparation Mondiale. On ne mélange donc pas les deux.
   const validatedById = useMemo(() => {
     const map = {}
-    const activeIsPoules = activeModule?.settings?.phase === 'poules'
+    const activeIsPoules = isGroupModule(activeModule)
     const feedsThis = m => { const f = m.settings?.feeds; if (f === 'none') return false; return activeIsPoules ? f === 'poules' : f !== 'poules' }
     modules.forEach(m => {
       if (m.type !== 'pronostic' || !feedsThis(m)) return
@@ -930,7 +935,7 @@ export default function App() {
   // Valeur € des ballons validés par joueur (taux PROPRE à chaque pronostic, ex. France–Irak 25€).
   const validatedValueById = useMemo(() => {
     const map = {}
-    const activeIsPoules = activeModule?.settings?.phase === 'poules'
+    const activeIsPoules = isGroupModule(activeModule)
     const feedsThis = m => { const f = m.settings?.feeds; if (f === 'none') return false; return activeIsPoules ? f === 'poules' : f !== 'poules' }
     modules.forEach(m => {
       if (m.type !== 'pronostic' || !feedsThis(m)) return

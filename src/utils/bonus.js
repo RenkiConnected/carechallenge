@@ -16,6 +16,16 @@ export const PRONO_BONUS = 20
 // Un ballon dont le pronostic a été validé par le Manager vaut 20€ (au lieu du taux palier)
 export const VALIDATED_BALL_VALUE = 20
 
+// Détection ROBUSTE du module "Phase de Poules" (groupe) : par réglage phase OU par nom,
+// pour que les bonus de pronos (France–Irak, Sénégal, Norvège) comptent bien dans le groupe
+// même si l'ancienne donnée a perdu settings.phase.
+export function isGroupModule(m) {
+  if (!m) return false
+  if (m.settings?.phase === 'poules') return true
+  const nm = (m.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return /poule/.test(nm)
+}
+
 // Taux par ballon "normal" d'un joueur (palier courant, ou top buteur)
 function ballRateFor(player, players, totalGoals, s) {
   // Seuil de déclenchement du bonus top buteur = objectif de la partie (défaut: tier2Threshold)
@@ -199,7 +209,7 @@ export function buildCombinedRanking(modules, coaches) {
       }
 
       const isCanon = mod.id === canonId
-      const isPoules = mod.settings?.phase === 'poules'
+      const isPoules = isGroupModule(mod)
       const vmap = isPoules ? validatedPoules : (isCanon ? validatedPrep : null)
       const vvalmap = isPoules ? valuePoules : (isCanon ? valuePrep : null)
 
