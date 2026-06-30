@@ -331,7 +331,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v28 · Bonus prono compté en Poules' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v29 · Manager edite ballons prono' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -388,6 +388,9 @@ export default function App() {
 
   // Droit d'édition : il faut DÉTENIR le verrou ET (être Manager OU modifier ses propres points).
   const mayEdit = (id) => holdsLockRef() && (dashAuthRef.current || (currentUserRef.current && !currentUserRef.current.manager && currentUserRef.current.id === id))
+  // Pronostics : le MANAGER peut toujours modifier les ballons (même date dépassée, même sans
+  // détenir le verrou). Les autres restent soumis au verrou + à la propriété de leur fiche.
+  const mayEditProno = (id) => dashAuthRef.current || mayEdit(id)
   const canEditUI = (id) => dashAuth || (currentUser && !currentUser.manager && currentUser.id === id)
 
   // Déconnexion automatique : retour à la page de connexion après 2 min d'inactivité,
@@ -1120,7 +1123,7 @@ export default function App() {
   }
 
   const addPronoBall = useCallback((id) => {
-    if (!mayEdit(id)) return
+    if (!mayEditProno(id)) return
     setModules(prev => {
       const active = prev.find(m => m.id === activeModRef.current)
       const target = targetForfaitModule(prev, active)
@@ -1152,7 +1155,7 @@ export default function App() {
   }, [])
 
   const removePronoBall = useCallback((id) => {
-    if (!mayEdit(id)) return
+    if (!mayEditProno(id)) return
     setModules(prev => {
       const active = prev.find(m => m.id === activeModRef.current)
       const target = targetForfaitModule(prev, active)

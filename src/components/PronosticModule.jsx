@@ -207,7 +207,7 @@ export default function PronosticModule({ module, players, coaches, dashAuth, ed
           const mine = editableId === '*' || editableId === player.id
           return (
             <PlayerPronoCard key={player.id} player={player} onUpdate={onUpdatePerson} onAddBall={onAddBall} onRemoveBall={onRemoveBall} T={T}
-              predLocked={(predLocked && !dashAuth) || !mine} ballLocked={(ballLocked && !dashAuth) || !mine} bonus={bonus} />
+              predLocked={(predLocked && !dashAuth) || !mine} ballLocked={dashAuth ? false : (ballLocked || !mine)} bonus={bonus} />
           )
         })}
       </div>
