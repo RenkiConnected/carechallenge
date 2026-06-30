@@ -288,6 +288,24 @@ function mergeById(bArr, lArr, sArr) {
 function mergeModule(b, l, s) {
   if (!s) return l
   if (!l) return s
+  // Module à BONUS QUOTIDIEN (Élimination directe) : la remise à zéro des ballons change de jour
+  // (elimDay). Avec une fusion par champ, un appareil resté sur la veille « ressusciterait » les
+  // anciens ballons. Donc : le jour (elimDay) le plus récent fait foi pour les compteurs du jour,
+  // et on UNIT l'historique des gains des deux côtés → l'argent déjà gagné n'est JAMAIS perdu.
+  const daily = l.settings?.dailyBonus || s.settings?.dailyBonus || b?.settings?.dailyBonus
+  if (daily && (l.elimDay || s.elimDay)) {
+    const ld = l.elimDay || '', sd = s.elimDay || ''
+    const histUnion = { ...(b?.elimHistory || {}), ...(s.elimHistory || {}), ...(l.elimHistory || {}) }
+    if (ld !== sd) {
+      const winner = ld > sd ? l : s          // jour le plus récent = compteurs du jour à jour (remis à zéro)
+      return { ...winner, elimHistory: histUnion }
+    }
+    const out = mergeObj(b, l, s)
+    out.players = mergeById(b?.players, l.players, s.players)
+    out.settings = mergeObj(b?.settings, l.settings, s.settings)
+    out.elimHistory = histUnion
+    return out
+  }
   const out = mergeObj(b, l, s)           // champs scalaires (name, type, result, settings…)
   out.players  = mergeById(b?.players,  l.players,  s.players)
   out.settings = mergeObj(b?.settings,  l.settings, s.settings)
@@ -308,7 +326,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v25 · Synchro + fiche + tableau PC' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v26 · Élim. reset quotidien fiable' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
