@@ -280,7 +280,15 @@ function mergeById(bArr, lArr, sArr) {
     // Présent dans l'ancêtre mais SUPPRIMÉ sur le serveur (par le manager) → on respecte
     // la suppression (on ne le garde pas). Sinon on fusionne ses champs.
     if (b.has(lp.id) && !s.has(lp.id)) return
-    out.push(mergeObj(b.get(lp.id), lp, s.get(lp.id)))
+    const sp = s.get(lp.id)
+    // LA PLUS RÉCENTE GAGNE : si les deux côtés portent un horodatage de saisie (_t), on prend
+    // ENTIÈREMENT la version la plus récente. Ça empêche définitivement qu'un appareil en retard
+    // n'écrase une saisie récente (ballons, pronos, points) avec une ancienne valeur.
+    if (sp && (lp._t || sp._t)) {
+      out.push((lp._t || 0) >= (sp._t || 0) ? lp : sp)
+    } else {
+      out.push(mergeObj(b.get(lp.id), lp, sp))
+    }
   })
   ;(sArr || []).forEach(sp => {
     if (lIds.has(sp.id)) return
@@ -293,6 +301,12 @@ function mergeById(bArr, lArr, sArr) {
 function mergeModule(b, l, s) {
   if (!s) return l
   if (!l) return s
+  // TABLEAU (bracket) : édité uniquement par le Manager. La version cochée la plus récente
+  // (winnersAt le plus grand) gagne ENTIÈREMENT → un appareil en retard ne peut jamais faire
+  // « sauter » un résultat saisi.
+  if (l.type === 'bracket' || s.type === 'bracket') {
+    return (l.winnersAt || 0) >= (s.winnersAt || 0) ? { ...s, ...l } : { ...l, ...s }
+  }
   // Module à BONUS QUOTIDIEN (Élimination directe) : la remise à zéro des ballons change de jour
   // (elimDay). Avec une fusion par champ, un appareil resté sur la veille « ressusciterait » les
   // anciens ballons. Donc : le jour (elimDay) le plus récent fait foi pour les compteurs du jour,
@@ -311,9 +325,23 @@ function mergeModule(b, l, s) {
     out.elimHistory = histUnion
     return out
   }
-  const out = mergeObj(b, l, s)           // champs scalaires (name, type, result, settings…)
+  const out = mergeObj(b, l, s)           // champs scalaires (name, type, settings…)
   out.players  = mergeById(b?.players,  l.players,  s.players)
   out.settings = mergeObj(b?.settings,  l.settings, s.settings)
+  // PRONOSTIC : le RÉSULTAT du match (saisi par le Manager) et la VALIDATION suivent « le plus
+  // récent gagne », pour qu'un appareil en retard ne réécrase pas un score/validation récents.
+  if (l.type === 'pronostic' || s.type === 'pronostic') {
+    if ((l.resultAt || 0) !== (s.resultAt || 0)) {
+      const newer = (l.resultAt || 0) >= (s.resultAt || 0) ? l : s
+      out.result = newer.result; out.resultAt = newer.resultAt
+    }
+    out.validatedRound = Math.max(l.validatedRound || 0, s.validatedRound || 0)
+    out.validatedAt = Math.max(l.validatedAt || 0, s.validatedAt || 0)
+    // La validation la plus récente fait foi pour coachData (statuts/gains figés).
+    if ((l.validatedAt || 0) !== (s.validatedAt || 0)) {
+      out.coachData = (l.validatedAt || 0) >= (s.validatedAt || 0) ? l.coachData : s.coachData
+    }
+  }
   return out
 }
 export function mergeState(base, local, server) {
@@ -331,7 +359,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v31 · Mobile : sauvegarde + session' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v32 · Saisies anti-écrasement' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -843,7 +871,7 @@ export default function App() {
   const setBracketWinner = useCallback((round, idx, teamId) => {
     if (!dashAuthRef.current) return
     setModules(prev => prev.map(m => m.type === 'bracket'
-      ? { ...m, winners: bracketSetWinner(m.winners || {}, round, idx, teamId) }
+      ? { ...m, winners: bracketSetWinner(m.winners || {}, round, idx, teamId), winnersAt: Date.now() }
       : m))
   }, [])
 
@@ -1020,13 +1048,13 @@ export default function App() {
       setModules(prev => prev.map(m => {
         if (m.id !== activeModRef.current) return m
         const cd = { ...(m.coachData || {}) }
-        cd[id] = { ...(cd[id] || {}), ...updates }
+        cd[id] = { ...(cd[id] || {}), ...updates, _t: Date.now() }
         return { ...m, coachData: cd }
       }))
       return
     }
     // données par-partie d'un joueur → uniquement la partie active
-    setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
+    setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, ...updates, _t: Date.now() } : p))
   }, [setActivePlayers])
 
   // Incrémente/décrémente une valeur par-module d'un coach dans son coachData.
@@ -1055,11 +1083,11 @@ export default function App() {
       setModules(prev => prev.map(m => {
         if (m.id !== activeModRef.current) return m
         const cd = { ...(m.coachData || {}) }; const cur = cd[id] || {}; const ng = (cur.goals || 0) + 1
-        cd[id] = { ...cur, goals: ng, ...stamp(cur, ng) }
+        cd[id] = { ...cur, goals: ng, ...stamp(cur, ng), _t: now }
         return { ...m, coachData: cd }
       }))
     } else {
-      setActivePlayers(prev => prev.map(p => { if (p.id !== id) return p; const ng = (p.goals || 0) + 1; return { ...p, goals: ng, ...stamp(p, ng) } }))
+      setActivePlayers(prev => prev.map(p => { if (p.id !== id) return p; const ng = (p.goals || 0) + 1; return { ...p, goals: ng, ...stamp(p, ng), _t: now } }))
     }
     if (coords) {
       setGoalBurst({ x: coords.x, y: coords.y, id: Date.now() })
@@ -1071,6 +1099,7 @@ export default function App() {
     if (!mayEdit(id)) return
     const active = stateRef.current.modules.find(m => m.id === activeModRef.current)
     const daily = !!active?.settings?.dailyBonus
+    const now = Date.now()
     const unstamp = (ng) => {
       const u = {}
       if (daily) { if (ng < 3) u.reach3At = null; if (ng < 2) u.reach2At = null }
@@ -1082,26 +1111,27 @@ export default function App() {
         const cd = { ...(m.coachData || {}) }; const cur = cd[id] || {}
         if ((cur.goals || 0) <= 0) return m
         const ng = cur.goals - 1
-        cd[id] = { ...cur, goals: ng, ...unstamp(ng) }
+        cd[id] = { ...cur, goals: ng, ...unstamp(ng), _t: now }
         return { ...m, coachData: cd }
       }))
     } else {
-      setActivePlayers(prev => prev.map(p => { if (p.id !== id || (p.goals || 0) <= 0) return p; const ng = p.goals - 1; return { ...p, goals: ng, ...unstamp(ng) } }))
+      setActivePlayers(prev => prev.map(p => { if (p.id !== id || (p.goals || 0) <= 0) return p; const ng = p.goals - 1; return { ...p, goals: ng, ...unstamp(ng), _t: now } }))
     }
   }, [setActivePlayers])
 
   // Tout retirer à un joueur (remet ses ballons à 0 d'un coup) — pratique pour corriger.
   const clearGoals = useCallback((id) => {
     if (!mayEdit(id)) return
+    const now = Date.now()
     if (coachesRef.current.some(c => c.id === id)) {
       setModules(prev => prev.map(m => {
         if (m.id !== activeModRef.current) return m
         const cd = { ...(m.coachData || {}) }
-        if (cd[id]) cd[id] = { ...cd[id], goals: 0, reach2At: null, reach3At: null }
+        if (cd[id]) cd[id] = { ...cd[id], goals: 0, reach2At: null, reach3At: null, _t: now }
         return { ...m, coachData: cd }
       }))
     } else {
-      setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, goals: 0, reach2At: null, reach3At: null } : p))
+      setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, goals: 0, reach2At: null, reach3At: null, _t: now } : p))
     }
   }, [setActivePlayers])
 
@@ -1155,6 +1185,7 @@ export default function App() {
 
   const addPronoBall = useCallback((id) => {
     if (!mayEditProno(id)) return
+    const now = Date.now()
     setModules(prev => {
       const active = prev.find(m => m.id === activeModRef.current)
       const target = targetForfaitModule(prev, active)
@@ -1165,19 +1196,19 @@ export default function App() {
           if (coachMode && stateRef.current.coaches.some(c => c.id === id)) {
             const cd = { ...(mm.coachData || {}) }
             const cur = cd[id] || {}
-            cd[id] = { ...cur, pronos: (cur.pronos || 0) + 1 }
+            cd[id] = { ...cur, pronos: (cur.pronos || 0) + 1, _t: now }
             mm = { ...mm, coachData: cd }
           } else {
-            mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, pronos: (p.pronos || 0) + 1 } : p) }
+            mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, pronos: (p.pronos || 0) + 1, _t: now } : p) }
           }
         }
         if (target && m.id === target.id) { // +1 forfait dans le classement alimenté
           if (stateRef.current.coaches.some(c => c.id === id)) {
             const cd = { ...(mm.coachData || {}) }
-            cd[id] = { ...(cd[id] || {}), goals: (cd[id]?.goals || 0) + 1 }
+            cd[id] = { ...(cd[id] || {}), goals: (cd[id]?.goals || 0) + 1, _t: now }
             mm = { ...mm, coachData: cd }
           } else {
-            mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, goals: (p.goals || 0) + 1 } : p) }
+            mm = { ...mm, players: mm.players.map(p => p.id === id ? { ...p, goals: (p.goals || 0) + 1, _t: now } : p) }
           }
         }
         return mm
@@ -1187,6 +1218,7 @@ export default function App() {
 
   const removePronoBall = useCallback((id) => {
     if (!mayEditProno(id)) return
+    const now = Date.now()
     setModules(prev => {
       const active = prev.find(m => m.id === activeModRef.current)
       const target = targetForfaitModule(prev, active)
@@ -1198,22 +1230,22 @@ export default function App() {
             const cd = { ...(mm.coachData || {}) }
             const cur = cd[id] || {}
             const np = Math.max(0, (cur.pronos || 0) - 1)
-            cd[id] = { ...cur, pronos: np, validatedPronos: Math.min(cur.validatedPronos || 0, np) }
+            cd[id] = { ...cur, pronos: np, validatedPronos: Math.min(cur.validatedPronos || 0, np), _t: now }
             mm = { ...mm, coachData: cd }
           } else {
             mm = { ...mm, players: mm.players.map(p => {
               if (p.id !== id) return p
               const np = Math.max(0, (p.pronos || 0) - 1)
-              return { ...p, pronos: np, validatedPronos: Math.min(p.validatedPronos || 0, np) }
+              return { ...p, pronos: np, validatedPronos: Math.min(p.validatedPronos || 0, np), _t: now }
             }) }
           }
         }
         if (target && m.id === target.id) {
           if (stateRef.current.coaches.some(c => c.id === id)) {
             const cd = { ...(mm.coachData || {}) }
-            if ((cd[id]?.goals || 0) > 0) { cd[id] = { ...(cd[id] || {}), goals: cd[id].goals - 1 }; mm = { ...mm, coachData: cd } }
+            if ((cd[id]?.goals || 0) > 0) { cd[id] = { ...(cd[id] || {}), goals: cd[id].goals - 1, _t: now }; mm = { ...mm, coachData: cd } }
           } else {
-            mm = { ...mm, players: mm.players.map(p => p.id === id && (p.goals || 0) > 0 ? { ...p, goals: p.goals - 1 } : p) }
+            mm = { ...mm, players: mm.players.map(p => p.id === id && (p.goals || 0) > 0 ? { ...p, goals: p.goals - 1, _t: now } : p) }
           }
         }
         return mm
@@ -1224,7 +1256,7 @@ export default function App() {
   // Le manager saisit le résultat officiel France-Irlande sur le module pronostic
   const setPronoResult = useCallback((moduleId, field, value) => {
     setModules(prev => prev.map(m => m.id === moduleId
-      ? { ...m, result: { ...(m.result || {}), [field]: value } }
+      ? { ...m, result: { ...(m.result || {}), [field]: value }, resultAt: Date.now() }
       : m))
   }, [])
 
@@ -1241,18 +1273,19 @@ export default function App() {
     const isWin = p => predicted(p) && Number(p.franceScore) === Number(rf) && Number(p.irelandScore) === Number(ri)
     const status = p => predicted(p) ? (isWin(p) ? 'won' : 'lost') : ''
     const newVP = p => isWin(p) ? (p.pronos || 0) : 0   // toutes les lignes du jour à 20€ si bon prono
+    const now = Date.now()
     setModules(prev => prev.map(m => {
       if (m.id !== moduleId) return m
-      const players = m.players.map(p => ({ ...p, validatedPronos: newVP(p), pronoStatus: status(p) }))
+      const players = m.players.map(p => ({ ...p, validatedPronos: newVP(p), pronoStatus: status(p), _t: now }))
       let coachData = m.coachData
       if (m.coachData !== undefined) {
         coachData = { ...m.coachData }
-        cs.forEach(c => { const d = coachData[c.id] || {}; coachData[c.id] = { ...d, validatedPronos: newVP(d), pronoStatus: status(d) } })
+        cs.forEach(c => { const d = coachData[c.id] || {}; coachData[c.id] = { ...d, validatedPronos: newVP(d), pronoStatus: status(d), _t: now } })
       }
-      return { ...m, validatedRound: (m.validatedRound || 0) + 1, players, ...(coachData !== undefined ? { coachData } : {}) }
+      return { ...m, validatedRound: (m.validatedRound || 0) + 1, validatedAt: now, players, ...(coachData !== undefined ? { coachData } : {}) }
     }))
     // France–Irlande historique : coachs en global
-    if (mod?.coachData === undefined) setCoaches(prev => prev.map(c => ({ ...c, validatedPronos: newVP(c), pronoStatus: status(c) })))
+    if (mod?.coachData === undefined) setCoaches(prev => prev.map(c => ({ ...c, validatedPronos: newVP(c), pronoStatus: status(c), _t: now })))
   }, [])
 
   // ── Gestion modules ───────────────────────────────────────────────────────
