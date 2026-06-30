@@ -54,7 +54,7 @@ function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, predLoc
       <PredictionPoll player={player} onUpdate={onUpdate} T={T} locked={predLocked} />
 
       <div className="prono-balls-section">
-        <div className="prono-balls-label">Lignes du jour{won && lines > 0 ? ` · payées ${bonus}€ 🎉` : ''}</div>
+        <div className="prono-balls-label">Lignes du jour{won && lines > 0 ? ` · bonus +${bonus}€/ligne 🎉` : ''}</div>
         <div className="prono-balls-row">
           {Array.from({ length: lines }, (_, i) => (
             <span key={i} className={`prono-ball ${won ? 'prono-ball-won' : 'prono-ball-pending'}`}>⚽</span>
@@ -65,7 +65,7 @@ function PlayerPronoCard({ player, onUpdate, onAddBall, onRemoveBall, T, predLoc
         </div>
       </div>
 
-      {won && <div className="prono-won-label">🎉 BON PRONOSTIC · {lines} ligne{lines>1?'s':''} × {bonus}€ = <strong>+{lines * bonus}€</strong></div>}
+      {won && <div className="prono-won-label">🎉 BON PRONOSTIC · bonus {lines} × {bonus}€ = <strong>+{lines * bonus}€</strong> (en plus des forfaits)</div>}
       {lost && <div className="prono-lost-label">❌ Pronostic raté · lignes au tarif normal</div>}
       {!won && !lost && hasScore(player) && <div className="pred-locked">🔒 Pronostic enregistré</div>}
     </div>

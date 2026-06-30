@@ -326,7 +326,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v26 · Élim. reset quotidien fiable' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v27 · Bonus prono additif' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).

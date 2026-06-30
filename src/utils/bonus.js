@@ -40,9 +40,10 @@ export function getPlayerEarnings(player, players, totalGoals, settings = DEFAUL
 }
 
 /**
- * Gains TOTAUX : les ballons validés (pronostics justes) valent 20€,
- * les autres valent le taux du palier courant (10/12/15€).
- * total = (buts - validés) × taux + validés × 20
+ * Gains TOTAUX = forfaits au taux normal (TOUS les buts) + bonus pronostic PAR-DESSUS.
+ * Un ballon dont le pronostic est validé rapporte donc : taux du palier + bonus du match
+ * (25€ pour France–Irak, 20€ pour les autres). Le bonus s'AJOUTE, il ne remplace pas le taux.
+ * total = buts × taux + (ballons validés présents) × bonus_du_match
  */
 export function getPlayerTotalEarnings(player, players, totalGoals, settings = DEFAULT_SETTINGS, validatedCount = 0, validatedValue = null) {
   const s = { ...DEFAULT_SETTINGS, ...settings }
@@ -50,11 +51,10 @@ export function getPlayerTotalEarnings(player, players, totalGoals, settings = D
   if (!goals) return 0
   const rate = ballRateFor(player, players, totalGoals, s)
   const vc = validatedCount || 0
-  const vp = Math.max(0, Math.min(vc, goals))
-  // Valeur des ballons validés : si une valeur € est fournie (taux par pronostic, ex. Irak 25€),
-  // on l'utilise (moyenne par ballon × ballons retenus) ; sinon repli au taux standard (20€).
+  const vp = Math.max(0, Math.min(vc, goals)) // on ne prime que les ballons validés réellement présents
+  // Bonus ADDITIF : valeur € par ballon validé (taux par match si fourni, sinon 20€), × ballons retenus.
   const bonus = (validatedValue != null && vc > 0) ? (validatedValue / vc) * vp : vp * VALIDATED_BALL_VALUE
-  return round2((goals - vp) * rate + bonus)
+  return round2(goals * rate + bonus)
 }
 
 /** Gains pronostic d'un joueur */
