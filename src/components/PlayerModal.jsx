@@ -161,6 +161,8 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
           </strong>
         </div>
         )}
+
+        <button className="modal-close-bottom" onClick={onClose}>Fermer</button>
       </div>
     </div>
   )

@@ -308,7 +308,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v24 · Défilement mobile corrigé' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v25 · Synchro + fiche + tableau PC' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -605,11 +605,6 @@ export default function App() {
         //     (Aucune perte : la fusion à l'écriture combinera nos ajouts au moment de sauvegarder.)
         if (!liveSyncRef.current) return
         if (selectedIdRef.current != null) return
-        // Si NOUS détenons le verrou d'édition → notre état local fait foi. On n'adopte pas une
-        // mise à jour distante (écho retardé ou appareil en lecture seule qui repousse une ancienne
-        // valeur), sinon elle pourrait annuler un retrait (ex. dernier ballon). serverRef est déjà
-        // mémorisé (plus haut) pour la fusion lorsqu'on ÉCRIRA après avoir lâché le verrou.
-        if (holdsLockRef()) { setGotRemote(true); hydrated.current = true; return }
         // 3c) FUSION À LA LECTURE : on combine l'état serveur avec NOS ajouts locaux pas encore
         //     sauvegardés (délai de sauvegarde). On ne perd ainsi JAMAIS un forfait en cours.
         const localNow = stateRef.current
@@ -649,12 +644,10 @@ export default function App() {
       return
     }
 
-    // Fusion 3-way : si un autre a modifié le serveur entre-temps, on combine au lieu d'écraser.
-    // MAIS si NOUS détenons le verrou d'édition, nous sommes le seul éditeur légitime → notre état
-    // local fait foi (sinon une valeur serveur en retard pourrait « ressusciter » un ballon qu'on
-    // vient de retirer, ex. retirer le dernier ballon d'un joueur).
+    // Fusion 3-way avant écriture : si un autre appareil a modifié le serveur entre-temps,
+    // on combine au lieu d'écraser (on ne perd ni nos ajouts, ni les leurs).
     let outM = m, outC = c
-    if (hydrated.current && !holdsLockRef()) {
+    if (hydrated.current) {
       const merged = mergeForWrite(m, c)
       outM = merged.modules; outC = merged.coaches
       if (_diff(outM, m)) { mergeReflect.current = true; setModules(outM) }

@@ -198,7 +198,9 @@ body {
 .player-modal { background:linear-gradient(160deg,#0f2040,#0a1628); border:1px solid rgba(255,215,0,.25); border-radius:var(--radius) var(--radius) 0 0; width:100%; max-width:500px; padding:20px; position:relative; max-height:88vh; overflow-y:auto; box-shadow:0 -8px 40px rgba(0,0,0,.8); }
 @media(min-width:600px){ .player-modal{border-radius:var(--radius);box-shadow:var(--shadow);} }
 
-.modal-header { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.modal-header { display:flex; align-items:center; gap:12px; margin-bottom:16px; position:sticky; top:-2px; z-index:5; background:linear-gradient(160deg,#0f2040,#0a1628); padding-top:4px; }
+.modal-close-bottom { margin-top:16px; width:100%; background:rgba(255,255,255,.1); border:1px solid var(--border); color:var(--text); font-family:var(--font-condensed); font-weight:800; letter-spacing:1px; font-size:1rem; padding:13px; border-radius:10px; cursor:pointer; }
+.modal-close-bottom:hover { background:rgba(255,255,255,.18); }
 .modal-player-circle { width:60px; height:60px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-family:var(--font-condensed); font-weight:800; font-size:1.15rem; color:#fff; border:2px solid rgba(255,255,255,.25); flex-shrink:0; position:relative; }
 .modal-player-crown { position:absolute; top:-14px; left:50%; transform:translateX(-50%); font-size:1.1rem; animation:crown-appear .5s cubic-bezier(.34,1.56,.64,1) forwards; filter:drop-shadow(0 0 8px rgba(255,215,0,.8)); }
 .modal-player-info { flex:1; min-width:0; }
@@ -928,7 +930,7 @@ img, svg, canvas { max-width:100%; }
 @keyframes ko-vs{ 0%,100%{ transform:scale(1) } 50%{ transform:scale(1.25); color:#ffd24a } }
 
 /* ─── TABLEAU DE LA COMPÉTITION (bracket miroir, centré, responsive) ─── */
-.bracket-wrap{ padding:6px 0 28px; }
+.bracket-wrap{ padding:6px 0 28px; display:flex; flex-direction:column; }
 .bracket-head{ text-align:center; margin-bottom:12px; padding:0 10px; }
 .bracket-title{ font-family:'Bebas Neue',sans-serif; font-size:1.5rem; letter-spacing:2px; color:var(--gold); }
 .bracket-sub{ font-family:'Barlow Condensed',sans-serif; font-size:.8rem; color:rgba(240,244,255,.6); margin-top:2px; line-height:1.35; }
@@ -942,11 +944,15 @@ img, svg, canvas { max-width:100%; }
 .bracket-champion .bc-label{ font-family:'Barlow Condensed',sans-serif; font-size:.72rem; letter-spacing:2px; color:rgba(240,244,255,.6); }
 .bracket-champion .bc-name{ font-family:'Bebas Neue',sans-serif; font-size:1.5rem; letter-spacing:1px; color:var(--gold); }
 
-/* Zone défilable : horizontale ET verticale, pour tout voir sur mobile comme sur PC */
+/* Zone défilable. Sur PC : remplit l'espace restant et défile à l'intérieur (flex).
+   Sur mobile : hauteur naturelle, défile avec la page (voir media query plus bas). */
 .bracket-scroll{
   overflow:auto; -webkit-overflow-scrolling:touch;
-  max-height:calc(100vh - 250px); padding:4px 6px 14px;
-  border-radius:12px;
+  padding:4px 6px 14px; border-radius:12px;
+}
+@media (min-width:768px){
+  .app-main > .bracket-wrap{ flex:1; min-height:0; padding-bottom:8px; }
+  .bracket-wrap > .bracket-scroll{ flex:1; min-height:0; }
 }
 /* Disposition miroir : 4 colonnes gauche + centre (coupe+finale) + 4 colonnes droite */
 .bracket-mirror{ display:flex; align-items:stretch; gap:10px; width:max-content; margin:0 auto; }
