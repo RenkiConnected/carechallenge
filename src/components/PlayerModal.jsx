@@ -19,6 +19,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
   const totalEarnings = daily ? dailyGain : getPlayerTotalEarnings(player, allPeople, totalGoals, s, validatedCount, validatedValue)
   const vp = Math.min(validatedCount || 0, player.goals || 0)
   const pronoBonus = Math.max(0, totalEarnings - earnings)
+  const perBall = (validatedValue != null && (validatedCount || 0) > 0) ? Math.round(validatedValue / validatedCount) : 20
   const isTop = daily ? false : isTopScorer(player, allPeople, s)
   const ht = hasHatTrick(player)
   const displaySlots = Math.max(3 + (player.extraSlots || 0), player.goals + 1)
@@ -80,7 +81,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
           </div>
           <div className="modal-stat">
             <div className="modal-stat-num" style={{ color: totalEarnings > 0 ? '#2ecc71' : 'var(--text-dim)' }}>{totalEarnings.toFixed(2)}€</div>
-            <div className="modal-stat-label">{daily ? (dailyGain >= (s.bonusFirst3??50) ? '🥇 1er à 3 ballons' : dailyGain > 0 ? 'Bonus du jour' : 'Bonus du jour') : (isTop ? '🏆 Prime Top' : 'Gain total')}{!daily && vp > 0 ? ` · ${vp} 🎯 à 20€` : ''}</div>
+            <div className="modal-stat-label">{daily ? (dailyGain >= (s.bonusFirst3??50) ? '🥇 1er à 3 ballons' : dailyGain > 0 ? 'Bonus du jour' : 'Bonus du jour') : (isTop ? '🏆 Prime Top' : 'Gain total')}{!daily && vp > 0 ? ` · ${vp} 🎯 à ${perBall}€` : ''}</div>
           </div>
         </div>
 

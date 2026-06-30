@@ -8,7 +8,7 @@ import Dashboard from './components/Dashboard'
 import Bracket, { setWinner as bracketSetWinner } from './components/Bracket'
 import Login from './components/Login'
 import WorldCupCountdown, { GROUP_PHASE_TS } from './components/WorldCupCountdown'
-import { getCurrentTier, getTierRate, DEFAULT_SETTINGS, PRONO_BONUS, computeElimDailyBonus, isGroupModule } from './utils/bonus'
+import { getCurrentTier, getTierRate, DEFAULT_SETTINGS, PRONO_BONUS, computeElimDailyBonus, isGroupModule, pronoWinBalls } from './utils/bonus'
 
 // Clé de jour locale 'AAAA-MM-JJ' (sert à la remise à zéro quotidienne de l'Élimination directe).
 const dayKeyOf = (d = new Date()) => {
@@ -331,7 +331,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v29 · Manager edite ballons prono' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v31 · Mobile : sauvegarde + session' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -401,6 +401,20 @@ export default function App() {
     if (idleTimer.current) clearTimeout(idleTimer.current)
     idleTimer.current = setTimeout(() => logout(), 120000) // 2 minutes
   }, [logout])
+  // Sauvegarde serveur : différée de 400 ms en temps normal. On garde la dernière donnée prête
+  // (pendingData) pour pouvoir FORCER l'écriture immédiatement quand l'appli passe en arrière-plan
+  // (sinon, sur mobile, l'écriture différée ne part jamais et la dernière modif — souvent le
+  // Tableau — est perdue).
+  const saveTimer = useRef(null)
+  const pendingData = useRef(null)
+  const flushSave = useCallback(() => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    const data = pendingData.current
+    if (data && isConfigured && db) {
+      pendingData.current = null
+      try { setDoc(doc(db, 'challenge', 'state'), data).catch(() => {}) } catch { /* ignore */ }
+    }
+  }, [])
   useEffect(() => {
     if (!currentUser) { if (idleTimer.current) clearTimeout(idleTimer.current); return }
     resetIdle()
@@ -415,17 +429,33 @@ export default function App() {
       if (editLockRef.current?.holderId === clientId.current) refreshLock()
       else if (!lockFresh(editLockRef.current)) acquireLock()
     }, 20000)
-    const onVis = () => { if (document.hidden) logout() }
+    // Passage en ARRIÈRE-PLAN (écran verrouillé, changement d'appli, notification…) :
+    //  • on FORCE la sauvegarde tout de suite (rien n'est perdu, surtout le Tableau) ;
+    //  • on LIBÈRE la main pour les autres ;
+    //  • mais on RESTE connecté, et on met en pause le minuteur d'inactivité.
+    // RETOUR au premier plan : on reprend la main si elle est libre et on relance le minuteur.
+    const onVis = () => {
+      if (document.hidden) {
+        flushSave()
+        releaseLock()
+        if (idleTimer.current) { clearTimeout(idleTimer.current); idleTimer.current = null }
+      } else {
+        if (!lockFresh(editLockRef.current) || editLockRef.current?.holderId === clientId.current) acquireLock()
+        resetIdle()
+      }
+    }
+    // Fermeture réelle de l'onglet : sauvegarde forcée + libération de la main (pas de déconnexion).
+    const onHide = () => { flushSave(); releaseLock() }
     document.addEventListener('visibilitychange', onVis)
-    window.addEventListener('pagehide', logout)
+    window.addEventListener('pagehide', onHide)
     return () => {
       evs.forEach(e => window.removeEventListener(e, onAct))
       document.removeEventListener('visibilitychange', onVis)
-      window.removeEventListener('pagehide', logout)
+      window.removeEventListener('pagehide', onHide)
       clearInterval(hb)
       if (idleTimer.current) clearTimeout(idleTimer.current)
     }
-  }, [currentUser, resetIdle, logout, acquireLock, refreshLock])
+  }, [currentUser, resetIdle, logout, acquireLock, refreshLock, releaseLock, flushSave])
 
   // Abonnement temps réel au jeton d'édition (qui modifie en ce moment).
   useEffect(() => {
@@ -466,7 +496,6 @@ export default function App() {
     const poules = (modules || []).find(m => m.settings && m.settings.phase === 'poules')
     if (poules) { setActiveMod(poules.id); setTab('module') }
   }, [modules])
-  const saveTimer = useRef(null)
 
   // Identité unique de CE client (pour ignorer nos propres échos Firebase)
   const clientId = useRef(Math.random().toString(36).slice(2) + Date.now().toString(36))
@@ -693,7 +722,9 @@ export default function App() {
       lastLocalEdit.current = now
       lastAcceptedAt.current = now
       if (saveTimer.current) clearTimeout(saveTimer.current)
+      pendingData.current = data // mémorisé pour pouvoir forcer l'écriture (arrière-plan/mobile)
       saveTimer.current = setTimeout(() => {
+        pendingData.current = null
         setDoc(doc(db,'challenge','state'), data).catch(e => { console.warn('[FB write]',e); setFbError(e.code || e.message || ''); setFbStatus('offline') })
       }, 400)
     }
@@ -927,8 +958,8 @@ export default function App() {
     const feedsThis = m => { const f = m.settings?.feeds; if (f === 'none') return false; return activeIsPoules ? f === 'poules' : f !== 'poules' }
     modules.forEach(m => {
       if (m.type !== 'pronostic' || !feedsThis(m)) return
-      ;(m.players || []).forEach(p => { map[p.id] = (map[p.id] || 0) + (p.validatedPronos || 0) })
-      if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => { map[id] = (map[id] || 0) + (d?.validatedPronos || 0) })
+      ;(m.players || []).forEach(p => { map[p.id] = (map[p.id] || 0) + pronoWinBalls(p, m) })
+      if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => { map[id] = (map[id] || 0) + pronoWinBalls(d, m) })
     })
     // Pronostic historique France–Irlande (coachs en global, sans coachData) → groupe Préparation
     if (!activeIsPoules) coaches.forEach(c => { if (c.validatedPronos) map[c.id] = (map[c.id] || 0) + (c.validatedPronos || 0) })
@@ -943,8 +974,8 @@ export default function App() {
     modules.forEach(m => {
       if (m.type !== 'pronostic' || !feedsThis(m)) return
       const val = m.settings?.pronoBonus || PRONO_BONUS
-      ;(m.players || []).forEach(p => { map[p.id] = (map[p.id] || 0) + (p.validatedPronos || 0) * val })
-      if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => { map[id] = (map[id] || 0) + (d?.validatedPronos || 0) * val })
+      ;(m.players || []).forEach(p => { map[p.id] = (map[p.id] || 0) + pronoWinBalls(p, m) * val })
+      if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => { map[id] = (map[id] || 0) + pronoWinBalls(d, m) * val })
     })
     if (!activeIsPoules) coaches.forEach(c => { if (c.validatedPronos) map[c.id] = (map[c.id] || 0) + (c.validatedPronos || 0) * PRONO_BONUS })
     return map

@@ -26,6 +26,20 @@ export function isGroupModule(m) {
   return /poule/.test(nm)
 }
 
+// Ballons GAGNANTS d'un pronostic, calculés DIRECTEMENT depuis le résultat du match + la prédiction
+// + le nombre de ballons RÉELS de la personne. C'est la source de vérité unique (plus de
+// désynchronisation possible avec un champ stocké). Conditions : le match a été validé au moins une
+// fois (validatedRound>0), le résultat est saisi, et la prédiction correspond exactement.
+export function pronoWinBalls(person, mod) {
+  if (!person || !mod || (mod.validatedRound || 0) <= 0) return 0
+  const R = mod.result || {}
+  if (R.france === '' || R.france == null || R.ireland === '' || R.ireland == null) return 0
+  const pred = person.franceScore !== '' && person.franceScore != null && person.irelandScore !== '' && person.irelandScore != null
+  if (!pred) return 0
+  const won = Number(person.franceScore) === Number(R.france) && Number(person.irelandScore) === Number(R.ireland)
+  return won ? (person.pronos || 0) : 0
+}
+
 // Taux par ballon "normal" d'un joueur (palier courant, ou top buteur)
 function ballRateFor(player, players, totalGoals, s) {
   // Seuil de déclenchement du bonus top buteur = objectif de la partie (défaut: tier2Threshold)
@@ -150,12 +164,14 @@ export function buildCombinedRanking(modules, coaches) {
     const vtarget = toPoules ? valuePoules : valuePrep
     const val = m.settings?.pronoBonus || PRONO_BONUS
     ;(m.players || []).forEach(p => {
-      target[String(p.id)] = (target[String(p.id)] || 0) + (p.validatedPronos || 0)
-      vtarget[String(p.id)] = (vtarget[String(p.id)] || 0) + (p.validatedPronos || 0) * val
+      const w = pronoWinBalls(p, m)
+      target[String(p.id)] = (target[String(p.id)] || 0) + w
+      vtarget[String(p.id)] = (vtarget[String(p.id)] || 0) + w * val
     })
     if (m.coachData) Object.entries(m.coachData).forEach(([id, d]) => {
-      target[String(id)] = (target[String(id)] || 0) + (d?.validatedPronos || 0)
-      vtarget[String(id)] = (vtarget[String(id)] || 0) + (d?.validatedPronos || 0) * val
+      const w = pronoWinBalls(d, m)
+      target[String(id)] = (target[String(id)] || 0) + w
+      vtarget[String(id)] = (vtarget[String(id)] || 0) + w * val
     })
   })
   ;(coaches || []).forEach(c => { if (c.validatedPronos) {
@@ -246,7 +262,7 @@ export function buildCombinedRanking(modules, coaches) {
         }
         const entry = map.get(key)
         entry.name = p.name; entry.color = p.color
-        const wins = p.validatedPronos || 0
+        const wins = pronoWinBalls(p, mod)
         entry.totalPronoWins += wins
         if (wins > 0 || (p.pronos||0) > 0)
           entry.moduleDetails.push({ type:'prono', name:mod.name, wins, pronos:p.pronos||0, earnings:0 })
