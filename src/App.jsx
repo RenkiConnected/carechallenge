@@ -359,7 +359,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v33 · Déconnexion visible + rappel' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v34 · Bouton deconnexion flottant' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -1507,6 +1507,9 @@ service cloud.firestore {
             <button className="logout-hint-btn" onClick={() => { setLogoutHint(false); logout() }}>Se déconnecter</button>
             <button className="logout-hint-x" onClick={() => setLogoutHint(false)} aria-label="Fermer">✕</button>
           </div>
+        )}
+        {currentUser && (
+          <button className="mobile-logout" onClick={logout} title="Se déconnecter">⏻ Déconnexion</button>
         )}
         {!isProno && !isBracket && (
           modSettings.dailyBonus ? (
