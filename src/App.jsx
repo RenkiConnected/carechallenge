@@ -359,7 +359,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v32 · Saisies anti-écrasement' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v33 · Déconnexion visible + rappel' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -429,6 +429,14 @@ export default function App() {
     if (idleTimer.current) clearTimeout(idleTimer.current)
     idleTimer.current = setTimeout(() => logout(), 120000) // 2 minutes
   }, [logout])
+  // Message « pense à te déconnecter » affiché après CHAQUE modification (auto-masqué après 6 s).
+  const [logoutHint, setLogoutHint] = useState(false)
+  const logoutHintTimer = useRef(null)
+  const hintLogout = useCallback(() => {
+    setLogoutHint(true)
+    if (logoutHintTimer.current) clearTimeout(logoutHintTimer.current)
+    logoutHintTimer.current = setTimeout(() => setLogoutHint(false), 6000)
+  }, [])
   // Sauvegarde serveur : différée de 400 ms en temps normal. On garde la dernière donnée prête
   // (pendingData) pour pouvoir FORCER l'écriture immédiatement quand l'appli passe en arrière-plan
   // (sinon, sur mobile, l'écriture différée ne part jamais et la dernière modif — souvent le
@@ -873,7 +881,8 @@ export default function App() {
     setModules(prev => prev.map(m => m.type === 'bracket'
       ? { ...m, winners: bracketSetWinner(m.winners || {}, round, idx, teamId), winnersAt: Date.now() }
       : m))
-  }, [])
+    hintLogout()
+  }, [hintLogout])
 
   // Élimination directe (mêmes règles que la phase de poule). AUTO-RÉPARANT : créée si absente.
   const elimDone = useRef(false)
@@ -1039,6 +1048,7 @@ export default function App() {
         ...m, players: m.players.map(p => p.id === id ? { ...p, ...updates } : p),
       })))
       setCoaches(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
+      hintLogout()
       return
     }
     // Donnée par-module d'un COACH (forfaits OU pronostic) → coachData du module actif,
@@ -1051,11 +1061,13 @@ export default function App() {
         cd[id] = { ...(cd[id] || {}), ...updates, _t: Date.now() }
         return { ...m, coachData: cd }
       }))
+      hintLogout()
       return
     }
     // données par-partie d'un joueur → uniquement la partie active
     setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, ...updates, _t: Date.now() } : p))
-  }, [setActivePlayers])
+    hintLogout()
+  }, [setActivePlayers, hintLogout])
 
   // Incrémente/décrémente une valeur par-module d'un coach dans son coachData.
   const bumpCoach = (id, field, delta, floor0) => {
@@ -1093,7 +1105,8 @@ export default function App() {
       setGoalBurst({ x: coords.x, y: coords.y, id: Date.now() })
       setTimeout(() => setGoalBurst(null), 700)
     }
-  }, [setActivePlayers])
+    hintLogout()
+  }, [setActivePlayers, hintLogout])
 
   const removeGoal = useCallback((id) => {
     if (!mayEdit(id)) return
@@ -1117,7 +1130,8 @@ export default function App() {
     } else {
       setActivePlayers(prev => prev.map(p => { if (p.id !== id || (p.goals || 0) <= 0) return p; const ng = p.goals - 1; return { ...p, goals: ng, ...unstamp(ng), _t: now } }))
     }
-  }, [setActivePlayers])
+    hintLogout()
+  }, [setActivePlayers, hintLogout])
 
   // Tout retirer à un joueur (remet ses ballons à 0 d'un coup) — pratique pour corriger.
   const clearGoals = useCallback((id) => {
@@ -1133,7 +1147,8 @@ export default function App() {
     } else {
       setActivePlayers(prev => prev.map(p => p.id === id ? { ...p, goals: 0, reach2At: null, reach3At: null, _t: now } : p))
     }
-  }, [setActivePlayers])
+    hintLogout()
+  }, [setActivePlayers, hintLogout])
 
   const addSlot = useCallback((id) => {
     if (!mayEdit(id)) return
@@ -1214,7 +1229,8 @@ export default function App() {
         return mm
       })
     })
-  }, [])
+    hintLogout()
+  }, [hintLogout])
 
   const removePronoBall = useCallback((id) => {
     if (!mayEditProno(id)) return
@@ -1251,14 +1267,16 @@ export default function App() {
         return mm
       })
     })
-  }, [])
+    hintLogout()
+  }, [hintLogout])
 
   // Le manager saisit le résultat officiel France-Irlande sur le module pronostic
   const setPronoResult = useCallback((moduleId, field, value) => {
     setModules(prev => prev.map(m => m.id === moduleId
       ? { ...m, result: { ...(m.result || {}), [field]: value }, resultAt: Date.now() }
       : m))
-  }, [])
+    hintLogout()
+  }, [hintLogout])
 
   // Valide TOUS les pronostics d'un coup en comparant au résultat officiel.
   // Si le pronostic est BON → toutes les lignes du jour de ce joueur passent à 20€
@@ -1286,7 +1304,8 @@ export default function App() {
     }))
     // France–Irlande historique : coachs en global
     if (mod?.coachData === undefined) setCoaches(prev => prev.map(c => ({ ...c, validatedPronos: newVP(c), pronoStatus: status(c), _t: now })))
-  }, [])
+    hintLogout()
+  }, [hintLogout])
 
   // ── Gestion modules ───────────────────────────────────────────────────────
   // Une nouvelle partie reprend automatiquement TOUS les joueurs existants (roster global)
@@ -1482,6 +1501,13 @@ service cloud.firestore {
             </div>
           </div>
         </div>
+        {logoutHint && currentUser && (
+          <div className="logout-hint" role="status">
+            <span className="logout-hint-txt">✅ Enregistré · pense à te <b>déconnecter</b> pour libérer la main</span>
+            <button className="logout-hint-btn" onClick={() => { setLogoutHint(false); logout() }}>Se déconnecter</button>
+            <button className="logout-hint-x" onClick={() => setLogoutHint(false)} aria-label="Fermer">✕</button>
+          </div>
+        )}
         {!isProno && !isBracket && (
           modSettings.dailyBonus ? (
             <div className="tier-bar" style={{ position:'relative' }}>
