@@ -3,7 +3,7 @@ import { getPlayerEarnings, getPlayerTotalEarnings, isTopScorer, hasHatTrick, DE
 
 function getInitials(name) { return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
 
-export default function PlayerModal({ player, allPeople, totalGoals, settings, validatedCount = 0, validatedValue = null, canEdit = true, onAddGoal, onRemoveGoal, onClearGoals, onAddSlot, onUpdatePerson, onClose }) {
+export default function PlayerModal({ player, allPeople, totalGoals, settings, validatedCount = 0, validatedValue = null, canEdit = true, onAddGoal, onRemoveGoal, onClearGoals, onAddSlot, onUpdatePerson, onClose, elimBannedId = null }) {
   const [editingName, setEditingName] = useState(false)
   const [nameVal, setNameVal] = useState(player.name)
   const [lastFilled, setLastFilled] = useState(null)
@@ -13,7 +13,7 @@ export default function PlayerModal({ player, allPeople, totalGoals, settings, v
 
   const unit = s.unit || 'forfait'
   const daily = !!s.dailyBonus
-  const dailyMap = daily ? computeElimDailyBonus(allPeople, s) : {}
+  const dailyMap = daily ? computeElimDailyBonus(allPeople, s, elimBannedId) : {}
   const dailyGain = dailyMap[String(player.id)] || 0
   const earnings = getPlayerEarnings(player, allPeople, totalGoals, s)
   const totalEarnings = daily ? dailyGain : getPlayerTotalEarnings(player, allPeople, totalGoals, s, validatedCount, validatedValue)

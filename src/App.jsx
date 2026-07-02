@@ -8,7 +8,7 @@ import Dashboard from './components/Dashboard'
 import Bracket, { setWinner as bracketSetWinner } from './components/Bracket'
 import Login from './components/Login'
 import WorldCupCountdown, { GROUP_PHASE_TS } from './components/WorldCupCountdown'
-import { getCurrentTier, getTierRate, DEFAULT_SETTINGS, PRONO_BONUS, computeElimDailyBonus, isGroupModule, pronoWinBalls } from './utils/bonus'
+import { getCurrentTier, getTierRate, DEFAULT_SETTINGS, PRONO_BONUS, computeElimDailyBonus, isGroupModule, pronoWinBalls, previousTripleWinnerId } from './utils/bonus'
 
 // Clé de jour locale 'AAAA-MM-JJ' (sert à la remise à zéro quotidienne de l'Élimination directe).
 const dayKeyOf = (d = new Date()) => {
@@ -359,7 +359,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v34 · Bouton deconnexion flottant' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v35 · Elim : triple non repetable' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -952,7 +952,8 @@ export default function App() {
           const cPeople = coachesRef.current.map(c => ({ id: c.id, goals: m.coachData?.[c.id]?.goals || 0, reach2At: m.coachData?.[c.id]?.reach2At, reach3At: m.coachData?.[c.id]?.reach3At }))
           const people = [...(m.players || []).map(p => ({ id: p.id, goals: p.goals || 0, reach2At: p.reach2At, reach3At: p.reach3At })), ...cPeople]
           const hist = { ...(m.elimHistory || {}) }
-          if (within && !hist[m.elimDay]) hist[m.elimDay] = computeElimDailyBonus(people, m.settings)
+          // Triplé de la veille (dernier jour déjà figé) → banni du triplé pour la journée qu'on fige.
+          if (within && !hist[m.elimDay]) hist[m.elimDay] = computeElimDailyBonus(people, m.settings, previousTripleWinnerId(m))
           const players = (m.players || []).map(p => ({ ...p, goals: 0, reach2At: null, reach3At: null }))
           const coachData = {}
           Object.entries(m.coachData || {}).forEach(([id, d]) => { coachData[id] = { ...d, goals: 0, reach2At: null, reach3At: null } })
@@ -1375,7 +1376,8 @@ export default function App() {
   const progressPct = Math.min(100, Math.round((totalGoals / objective) * 100))
 
   // Élimination directe : stats du jour (bonus quotidien) pour l'en-tête et le bandeau.
-  const elimDaily = modSettings.dailyBonus ? computeElimDailyBonus(allPeople, modSettings) : null
+  const elimBannedId = modSettings.dailyBonus ? previousTripleWinnerId(activeModule) : null
+  const elimDaily = modSettings.dailyBonus ? computeElimDailyBonus(allPeople, modSettings, elimBannedId) : null
   const elimFirst3 = modSettings.bonusFirst3 ?? 50
   const elimB2 = modSettings.bonus2 ?? 30
   const elimN2 = modSettings.bonus2Count ?? 4
@@ -1628,7 +1630,7 @@ service cloud.firestore {
                     🏆 <strong>Élimination directe — bonus du jour.</strong> Le 1ᵉʳ à <strong>3 ballons</strong> gagne <strong>{activeModule.settings.bonusFirst3 ?? 50}€</strong>, les <strong>{activeModule.settings.bonus2Count ?? 4} suivants</strong> à <strong>2 ballons</strong> gagnent <strong>{activeModule.settings.bonus2 ?? 30}€</strong>. Si personne n'atteint 3, aucun bonus. Ballons remis à zéro chaque jour à minuit, gains cumulés jusqu'au 9 juillet.
                   </div>
                 )}
-                <Pitch players={modPlayers} coaches={activeCoaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onClearGoals={clearGoals} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} validatedValueById={validatedValueById} dashAuth={dashAuth} editableId={editableId} />
+                <Pitch players={modPlayers} coaches={activeCoaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onClearGoals={clearGoals} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} validatedValueById={validatedValueById} dashAuth={dashAuth} editableId={editableId} elimBannedId={elimBannedId} />
               </div>
         )}
         {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}
@@ -1637,7 +1639,7 @@ service cloud.firestore {
           <Dashboard
             modules={modules} coaches={coaches} activeModId={activeMod}
             onSetActiveMod={(id) => { setActiveMod(id); activeModRef.current = id }}
-            allPeople={allPeople} totalGoals={totalGoals} settings={modSettings}
+            allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} elimBannedId={elimBannedId}
             auth={dashAuth} onAuth={setDashAuth}
             onAddPlayer={addPlayer} onRemovePlayer={removePlayer}
             onUpdatePerson={updatePerson}

@@ -91,18 +91,34 @@ export function getPronoEarnings(player) {
 // Puis les bonus2Count (4) suivants à atteindre ≥2 ballons gagnent bonus2 (30€) chacun.
 // Si PERSONNE n'atteint 3 ballons → aucun bonus ce jour-là.
 // L'ordre est donné par reach3At / reach2At (timestamps posés à l'atteinte du 3e / 2e ballon).
-export function computeElimDailyBonus(people, settings = {}) {
+// Gagnant du TRIPLÉ (50€ « 1er à 3 ») la veille. L'historique ne contient que les jours PASSÉS
+// (le jour en cours n'y est pas encore), donc « la veille » = le dernier jour enregistré.
+export function previousTripleWinnerId(mod) {
+  const hist = mod?.elimHistory || {}
+  const FIRST3 = mod?.settings?.bonusFirst3 ?? 50
+  const days = Object.keys(hist).sort()
+  if (!days.length) return null
+  const last = hist[days[days.length - 1]] || {}
+  const w = Object.entries(last).find(([, amt]) => amt >= FIRST3)
+  return w ? w[0] : null
+}
+
+export function computeElimDailyBonus(people, settings = {}, bannedTripleId = null) {
   const FIRST3 = settings.bonusFirst3 ?? 50
   const B2 = settings.bonus2 ?? 30
   const N2 = settings.bonus2Count ?? 4
   const earnings = {}
+  const banned = bannedTripleId != null ? String(bannedTripleId) : null
   const reached3 = (people || []).filter(p => (p.goals || 0) >= 3)
     .sort((a, b) => (a.reach3At || 9e15) - (b.reach3At || 9e15))
-  if (!reached3.length) return earnings // personne n'a fait 3 → aucun bonus
-  const first = reached3[0]
-  earnings[String(first.id)] = FIRST3
+  // Le TRIPLÉ (50€) va au PREMIER à atteindre 3 ballons QUI N'A PAS gagné le triplé la veille.
+  // Le gagnant de la veille ne peut prétendre qu'au doublé : s'il atteint 3, il est traité comme un
+  // doublé (éligible aux 30€ ci-dessous), et le triplé passe à la personne suivante éligible.
+  const tripleWinner = reached3.find(p => String(p.id) !== banned)
+  if (tripleWinner) earnings[String(tripleWinner.id)] = FIRST3
+  // DOUBLÉ (30€) : les premiers (par reach2At) à ≥2 ballons, hors gagnant du triplé DU JOUR.
   const others = (people || [])
-    .filter(p => String(p.id) !== String(first.id) && (p.goals || 0) >= 2)
+    .filter(p => (!tripleWinner || String(p.id) !== String(tripleWinner.id)) && (p.goals || 0) >= 2)
     .sort((a, b) => (a.reach2At || 9e15) - (b.reach2At || 9e15))
     .slice(0, N2)
   others.forEach(p => { earnings[String(p.id)] = B2 })
@@ -206,7 +222,7 @@ export function buildCombinedRanking(modules, coaches) {
       // ── Module ÉLIMINATION DIRECTE (bonus quotidien) ──
       if (mod.settings?.dailyBonus) {
         const histTotals = elimTotalsById(mod)              // journées figées
-        const liveToday = computeElimDailyBonus(allPeople, mod.settings) // jour en cours
+        const liveToday = computeElimDailyBonus(allPeople, mod.settings, previousTripleWinnerId(mod)) // jour en cours (triplé de la veille banni)
         const ids = new Set([...Object.keys(histTotals), ...Object.keys(liveToday), ...allPeople.map(p => String(p.id))])
         ids.forEach(key => {
           const person = allPeople.find(p => String(p.id) === key) || {}

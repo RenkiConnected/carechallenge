@@ -42,12 +42,12 @@ function ColorPicker({ current, onChange }) {
 }
 
 // ── Ligne joueur ──────────────────────────────────────────────────────────────
-function PlayerRow({ player, onUpdate, onAddGoal, onRemoveGoal, onRemove, allPeople, totalGoals, settings, validatedCount = 0, validatedValue = null }) {
+function PlayerRow({ player, onUpdate, onAddGoal, onRemoveGoal, onRemove, allPeople, totalGoals, settings, validatedCount = 0, validatedValue = null, elimBannedId = null }) {
   const [showColor, setShowColor] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
 
   const daily = !!settings.dailyBonus
-  const earnings = daily ? (computeElimDailyBonus(allPeople, settings)[String(player.id)] || 0) : getPlayerTotalEarnings(player, allPeople, totalGoals, settings, validatedCount, validatedValue)
+  const earnings = daily ? (computeElimDailyBonus(allPeople, settings, elimBannedId)[String(player.id)] || 0) : getPlayerTotalEarnings(player, allPeople, totalGoals, settings, validatedCount, validatedValue)
   const isTop = daily ? false : isTopScorer(player, allPeople, settings)
 
   const handleAdd  = useCallback(() => onAddGoal(player.id), [onAddGoal, player.id])
@@ -187,7 +187,7 @@ function ModuleRow({ mod, isActive, onActivate, onRename, onRemove }) {
 // ── Dashboard principal ───────────────────────────────────────────────────────
 export default function Dashboard({
   modules, coaches, activeModId, onSetActiveMod,
-  allPeople, totalGoals, settings,
+  allPeople, totalGoals, settings, elimBannedId = null,
   auth, onAuth,
   onAddPlayer, onRemovePlayer, onUpdatePerson,
   onAddGoal, onRemoveGoal,
@@ -233,7 +233,7 @@ export default function Dashboard({
   const vpFor = (id) => isFedActive ? (validatedById[id]||0) : 0
   const vvalFor = (id) => isFedActive ? (validatedValueById[id] ?? null) : null
   const isDailyActive = !!activeModForVp?.settings?.dailyBonus
-  const dailyMapActive = isDailyActive ? computeElimDailyBonus(allPeople, s) : null
+  const dailyMapActive = isDailyActive ? computeElimDailyBonus(allPeople, s, elimBannedId) : null
   const elimFirst3D = s.bonusFirst3 ?? 50, elimB2D = s.bonus2 ?? 30, elimN2D = s.bonus2Count ?? 4
   const triplesD = dailyMapActive ? Object.values(dailyMapActive).filter(v=>v===elimFirst3D).length : 0
   const doublesD = dailyMapActive ? Object.values(dailyMapActive).filter(v=>v===elimB2D).length : 0
@@ -351,10 +351,10 @@ export default function Dashboard({
           <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontWeight:400, fontSize:'.7rem', color:'var(--text-dim)', marginLeft:6 }}>(partagés sur tout le site · avatar = couleur)</span>
         </div>
         {coaches.map(c => (
-          <PlayerRow key={c.id} player={c} onUpdate={onUpdatePerson} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} onRemove={()=>{}} allPeople={allPeople} totalGoals={totalGoals} settings={s} validatedCount={vpFor(c.id)} validatedValue={vvalFor(c.id)} />
+          <PlayerRow key={c.id} player={c} onUpdate={onUpdatePerson} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} onRemove={()=>{}} allPeople={allPeople} totalGoals={totalGoals} settings={s} validatedCount={vpFor(c.id)} validatedValue={vvalFor(c.id)} elimBannedId={elimBannedId} />
         ))}
         {modPlayers.map(p => (
-          <PlayerRow key={p.id} player={p} onUpdate={onUpdatePerson} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} onRemove={onRemovePlayer} allPeople={allPeople} totalGoals={totalGoals} settings={s} validatedCount={vpFor(p.id)} validatedValue={vvalFor(p.id)} />
+          <PlayerRow key={p.id} player={p} onUpdate={onUpdatePerson} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} onRemove={onRemovePlayer} allPeople={allPeople} totalGoals={totalGoals} settings={s} validatedCount={vpFor(p.id)} validatedValue={vvalFor(p.id)} elimBannedId={elimBannedId} />
         ))}
         <div className="btn-row">
           <button type="button" className="btn-primary" onClick={onAddPlayer}>+ Ajouter un joueur</button>

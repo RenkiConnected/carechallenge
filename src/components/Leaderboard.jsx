@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   getPlayerEarnings, getPlayerTotalEarnings, getPronoEarnings, buildCombinedRanking,
   isTopScorer, hasHatTrick, getCurrentTier, DEFAULT_SETTINGS, PRONO_BONUS,
-  computeElimDailyBonus, elimTotalsById
+  computeElimDailyBonus, elimTotalsById, previousTripleWinnerId
 } from '../utils/bonus'
 
 function getInitials(name) { return name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) }
@@ -183,7 +183,7 @@ function ElimModuleView({ mod, coaches }) {
   const moduleCoaches = (coaches||[]).map(c => ({ ...c, goals: mod.coachData?.[c.id]?.goals||0, reach2At: mod.coachData?.[c.id]?.reach2At, reach3At: mod.coachData?.[c.id]?.reach3At }))
   const allPeople = [...(mod.players||[]), ...moduleCoaches]
   const hist = elimTotalsById(mod)
-  const live = computeElimDailyBonus(allPeople, mod.settings)
+  const live = computeElimDailyBonus(allPeople, mod.settings, previousTripleWinnerId(mod))
   const first3 = mod.settings?.bonusFirst3 ?? 50
   const b2 = mod.settings?.bonus2 ?? 30
   const n2 = mod.settings?.bonus2Count ?? 4
