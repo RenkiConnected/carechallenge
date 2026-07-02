@@ -223,7 +223,8 @@ export function buildCombinedRanking(modules, coaches) {
       if (mod.settings?.dailyBonus) {
         const histTotals = elimTotalsById(mod)              // journées figées
         const liveToday = computeElimDailyBonus(allPeople, mod.settings, previousTripleWinnerId(mod)) // jour en cours (triplé de la veille banni)
-        const ids = new Set([...Object.keys(histTotals), ...Object.keys(liveToday), ...allPeople.map(p => String(p.id))])
+        const adjust = mod.elimAdjust || {}                 // corrections manuelles du manager
+        const ids = new Set([...Object.keys(histTotals), ...Object.keys(liveToday), ...Object.keys(adjust), ...allPeople.map(p => String(p.id))])
         ids.forEach(key => {
           const person = allPeople.find(p => String(p.id) === key) || {}
           if (!map.has(key)) {
@@ -232,7 +233,7 @@ export function buildCombinedRanking(modules, coaches) {
           }
           const entry = map.get(key)
           if (person.name) { entry.name = person.name; entry.color = person.color }
-          const gain = (histTotals[key] || 0) + (liveToday[key] || 0)
+          const gain = (histTotals[key] || 0) + (liveToday[key] || 0) + (adjust[key] || 0)
           entry.totalEarnings += gain
           entry.pronoEarningsTotal += gain // affiché comme "bonus" (hors forfaits au taux)
           if (gain > 0) entry.moduleDetails.push({ type:'elim', name:mod.name, goals:person.goals || 0, earnings:gain })

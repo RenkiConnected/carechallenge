@@ -1040,3 +1040,17 @@ img, svg, canvas { max-width:100%; }
   .bk-center{ min-width:150px; }
   .bk-trophy{ width:78px; }
 }
+
+/* Ajustement manuel des gains (Manager) — classement Élimination directe */
+.elim-adjust { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;
+  margin:-2px 0 8px; padding:8px 10px; background:rgba(155,120,255,.08);
+  border:1px dashed rgba(155,120,255,.4); border-radius:10px; }
+.elim-adjust-lbl { font-family:'Barlow Condensed',sans-serif; font-size:.8rem; color:#c9b8ff; }
+.elim-adjust-ctl { display:flex; align-items:center; gap:6px; }
+.elim-adjust-step { background:rgba(155,120,255,.2); color:#e6ddff; border:1px solid rgba(155,120,255,.4);
+  border-radius:8px; padding:6px 10px; font-weight:700; cursor:pointer; font-family:'Barlow Condensed',sans-serif; min-height:34px; }
+.elim-adjust-in { width:74px; text-align:center; background:#0e1a30; color:#fff; border:1px solid rgba(155,120,255,.5);
+  border-radius:8px; padding:6px 8px; font-family:'Barlow Condensed',sans-serif; font-size:1rem; }
+.elim-adjust-ok { background:#9b78ff; color:#111; border:none; border-radius:8px; padding:6px 14px;
+  font-weight:800; cursor:pointer; font-family:'Barlow Condensed',sans-serif; min-height:34px; }
+.elim-adjust-ok:active { background:#8869e6; }

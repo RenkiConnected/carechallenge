@@ -179,7 +179,25 @@ function ForfaitModuleView({ mod, coaches, validatedById = {}, validatedValueByI
 }
 
 // ── Vue Élimination directe (bonus quotidien cumulé) ─────────────────────────
-function ElimModuleView({ mod, coaches }) {
+// Éditeur d'ajustement manuel (Manager) des gains d'une personne en Élimination directe.
+function ElimAdjustEditor({ moduleId, person, value, onSet }) {
+  const [val, setVal] = useState(String(value || 0))
+  const apply = (v) => { const n = Math.round(Number(v) || 0); setVal(String(n)); onSet(moduleId, person.id, n) }
+  return (
+    <div className="elim-adjust">
+      <span className="elim-adjust-lbl">✏️ Ajustement manager (€) pour <b>{person.name}</b></span>
+      <div className="elim-adjust-ctl">
+        <button className="elim-adjust-step" onClick={() => apply((Number(val)||0) - 10)}>−10</button>
+        <input className="elim-adjust-in" type="number" inputMode="numeric" value={val}
+          onChange={e => setVal(e.target.value)} onBlur={e => apply(e.target.value)} />
+        <button className="elim-adjust-step" onClick={() => apply((Number(val)||0) + 10)}>+10</button>
+        <button className="elim-adjust-ok" onClick={() => apply(val)}>OK</button>
+      </div>
+    </div>
+  )
+}
+
+function ElimModuleView({ mod, coaches, dashAuth = false, onSetElimAdjust }) {
   const moduleCoaches = (coaches||[]).map(c => ({ ...c, goals: mod.coachData?.[c.id]?.goals||0, reach2At: mod.coachData?.[c.id]?.reach2At, reach3At: mod.coachData?.[c.id]?.reach3At }))
   const allPeople = [...(mod.players||[]), ...moduleCoaches]
   const hist = elimTotalsById(mod)
@@ -187,9 +205,11 @@ function ElimModuleView({ mod, coaches }) {
   const first3 = mod.settings?.bonusFirst3 ?? 50
   const b2 = mod.settings?.bonus2 ?? 30
   const n2 = mod.settings?.bonus2Count ?? 4
+  const adjust = mod.elimAdjust || {}
   const rows = allPeople.map(p => ({
     ...p,
-    total: (hist[String(p.id)]||0) + (live[String(p.id)]||0),
+    adjust: adjust[String(p.id)] || 0,
+    total: (hist[String(p.id)]||0) + (live[String(p.id)]||0) + (adjust[String(p.id)]||0),
     today: live[String(p.id)]||0,
   })).sort((a,b) => b.total - a.total || (b.goals||0)-(a.goals||0) || a.name.localeCompare(b.name))
   const grand = rows.reduce((s,r)=>s+r.total,0)
@@ -206,7 +226,8 @@ function ElimModuleView({ mod, coaches }) {
       {rows.map((player, i) => {
         const rank = i + 1
         return (
-          <div key={player.id} className={`lb-row ${rank===1?'rank-1':rank===2?'rank-2':rank===3?'rank-3':''}`} style={{ animationDelay:`${i*.04}s` }}>
+          <div key={player.id}>
+          <div className={`lb-row ${rank===1?'rank-1':rank===2?'rank-2':rank===3?'rank-3':''}`} style={{ animationDelay:`${i*.04}s` }}>
             <div className="rank-num">{rank<=3 && player.total>0 ? MEDALS[rank-1] : rank}</div>
             <div className="lb-avatar" style={{ background:player.color }}>{getInitials(player.name)}</div>
             <div className="lb-info">
@@ -215,6 +236,7 @@ function ElimModuleView({ mod, coaches }) {
                 {player.isCoach && <span className="badge-pill" style={{ background:'rgba(255,215,0,.15)', color:'var(--gold)', border:'1px solid rgba(255,215,0,.3)' }}>{player.role}</span>}
                 {player.today === first3 && <span className="badge-pill" style={{ background:'rgba(255,107,53,.18)', color:'#ff6b35', border:'1px solid rgba(255,107,53,.35)' }}>🥇 1er à 3 · +{first3}€</span>}
                 {player.today === b2 && <span className="badge-pill" style={{ background:'rgba(0,229,204,.15)', color:'#00e5cc', border:'1px solid rgba(0,229,204,.3)' }}>+{b2}€ aujourd'hui</span>}
+                {player.adjust !== 0 && <span className="badge-pill" style={{ background:'rgba(155,120,255,.16)', color:'#b79dff', border:'1px solid rgba(155,120,255,.35)' }}>ajusté {player.adjust>0?'+':''}{player.adjust}€</span>}
               </div>
             </div>
             <div className="lb-goals"><div className="lb-goals-num">{player.goals||0}</div><div className="lb-goals-label">auj.</div></div>
@@ -222,6 +244,8 @@ function ElimModuleView({ mod, coaches }) {
               <div className="lb-earn-num" style={{ color:player.total>0?'var(--gold)':'rgba(240,244,255,.2)' }}>{player.total}€</div>
               <div className="lb-earn-label">cumulé</div>
             </div>
+          </div>
+          {dashAuth && onSetElimAdjust && <ElimAdjustEditor moduleId={mod.id} person={player} value={player.adjust} onSet={onSetElimAdjust} />}
           </div>
         )
       })}
@@ -287,7 +311,7 @@ function PronoModuleView({ mod, coaches }) {
 }
 
 // ── Composant principal ───────────────────────────────────────────────────────
-export default function Leaderboard({ modules, coaches, activeModId }) {
+export default function Leaderboard({ modules, coaches, activeModId, dashAuth = false, onSetElimAdjust }) {
   // Le classement d'un module pronostic = celui de la Préparation Mondiale (1ère partie forfaits).
   const forfaitMods = modules.filter(m => (m.type || 'forfaits') === 'forfaits')
   const canonId = forfaitMods[0]?.id
@@ -372,7 +396,7 @@ export default function Leaderboard({ modules, coaches, activeModId }) {
         return mod.type === 'pronostic'
           ? <PronoModuleView mod={mod} coaches={coaches} />
           : mod.settings?.dailyBonus
-            ? <ElimModuleView mod={mod} coaches={coaches} />
+            ? <ElimModuleView mod={mod} coaches={coaches} dashAuth={dashAuth} onSetElimAdjust={onSetElimAdjust} />
             : (() => {
               const isPoules = mod.settings?.phase === 'poules'
               const credited = mod.id === canonId || isPoules

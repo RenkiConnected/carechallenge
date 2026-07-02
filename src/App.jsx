@@ -315,14 +315,19 @@ function mergeModule(b, l, s) {
   if (daily && (l.elimDay || s.elimDay)) {
     const ld = l.elimDay || '', sd = s.elimDay || ''
     const histUnion = { ...(b?.elimHistory || {}), ...(s.elimHistory || {}), ...(l.elimHistory || {}) }
+    // Ajustements manuels du manager : le côté modifié le plus récemment fait foi (jamais écrasé
+    // par un appareil en retard).
+    const adjSide = (l.elimAdjustAt || 0) >= (s.elimAdjustAt || 0) ? l : s
+    const adjPart = { elimAdjust: adjSide.elimAdjust || {}, elimAdjustAt: adjSide.elimAdjustAt || 0 }
     if (ld !== sd) {
       const winner = ld > sd ? l : s          // jour le plus récent = compteurs du jour à jour (remis à zéro)
-      return { ...winner, elimHistory: histUnion }
+      return { ...winner, elimHistory: histUnion, ...adjPart }
     }
     const out = mergeObj(b, l, s)
     out.players = mergeById(b?.players, l.players, s.players)
     out.settings = mergeObj(b?.settings, l.settings, s.settings)
     out.elimHistory = histUnion
+    out.elimAdjust = adjPart.elimAdjust; out.elimAdjustAt = adjPart.elimAdjustAt
     return out
   }
   const out = mergeObj(b, l, s)           // champs scalaires (name, type, settings…)
@@ -359,7 +364,7 @@ export function mergeState(base, local, server) {
 }
 
 export default function App() {
-  const APP_VERSION = 'v35 · Elim : triple non repetable' // repère visible : confirme que la dernière version est en ligne
+  const APP_VERSION = 'v36 · Elim : ajustement manager' // repère visible : confirme que la dernière version est en ligne
   const saved = loadLocal()
   const freshStart = useRef(!saved) // aucun stockage local au lancement
   // Pierres tombales : liste des id de joueurs supprimés (ne réapparaissent jamais).
@@ -881,6 +886,20 @@ export default function App() {
     setModules(prev => prev.map(m => m.type === 'bracket'
       ? { ...m, winners: bracketSetWinner(m.winners || {}, round, idx, teamId), winnersAt: Date.now() }
       : m))
+    hintLogout()
+  }, [hintLogout])
+
+  // Élimination directe : le MANAGER peut ajuster manuellement les gains d'une personne dans le
+  // classement (correction en €, positive ou négative), ajoutée au total calculé automatiquement.
+  const setElimAdjust = useCallback((moduleId, id, value) => {
+    if (!dashAuthRef.current) return
+    const v = Math.round(Number(value) || 0)
+    setModules(prev => prev.map(m => {
+      if (m.id !== moduleId) return m
+      const adj = { ...(m.elimAdjust || {}) }
+      if (!v) delete adj[String(id)]; else adj[String(id)] = v
+      return { ...m, elimAdjust: adj, elimAdjustAt: Date.now() }
+    }))
     hintLogout()
   }, [hintLogout])
 
@@ -1633,7 +1652,7 @@ service cloud.firestore {
                 <Pitch players={modPlayers} coaches={activeCoaches} selectedId={selectedId} onSelect={setSelectedId} onUpdatePerson={updatePerson} onAddGoal={addGoal} onRemoveGoal={removeGoal} onClearGoals={clearGoals} onAddSlot={addSlot} allPeople={allPeople} totalGoals={totalGoals} settings={modSettings} validatedById={validatedById} validatedValueById={validatedValueById} dashAuth={dashAuth} editableId={editableId} elimBannedId={elimBannedId} />
               </div>
         )}
-        {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} />}
+        {tab === 'leaderboard' && <Leaderboard modules={modules} coaches={coaches} activeModId={activeMod} dashAuth={dashAuth} onSetElimAdjust={setElimAdjust} />}
         {tab === 'rules' && <Rules totalGoals={totalGoals} currentTier={currentTier} settings={modSettings} moduleName={activeModule?.name} />}
         {tab === 'dashboard' && (
           <Dashboard
